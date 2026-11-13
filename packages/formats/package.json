@@ -1,0 +1,29 @@
+{
+  "name": "@tm/formats",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./card": "./src/card.ts",
+    "./png-text": "./src/png-text.ts",
+    "./chat": "./src/chat.ts",
+    "./regex": "./src/regex.ts",
+    "./world-info": "./src/world-info.ts",
+    "./presets": "./src/presets.ts",
+    "./quick-reply": "./src/quick-reply.ts",
+    "./settings": "./src/settings.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}

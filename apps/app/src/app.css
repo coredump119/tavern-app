@@ -1,0 +1,389 @@
+@import '@tm/ui/reset.css';
+@import '@tm/ui/tokens.css';
+@import '@tm/ui/st-aliases.css';
+
+html {
+  height: 100%;
+  background: var(--tm-color-bg);
+}
+body {
+  height: 100%;
+}
+#app {
+  height: 100%;
+  height: 100dvh;
+}
+body {
+  background: var(--tm-color-bg);
+  color: var(--tm-color-text);
+  font-family: var(--tm-font-body);
+  font-size: var(--tm-text-md);
+  line-height: var(--tm-leading-body);
+  letter-spacing: var(--tm-tracking-normal);
+}
+::selection {
+  background: color-mix(in srgb, var(--tm-color-accent) 22%, transparent);
+}
+
+/* ---- shared form vocabulary for settings pages (tokens only; DESIGN.md §7) ---- */
+.tm-form {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+  max-width: var(--tm-chat-measure);
+  margin: 0 auto;
+  padding: var(--tm-space-5) var(--tm-gutter) calc(var(--tm-space-10) + var(--tm-safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--tm-space-5);
+  font-family: var(--tm-font-ui);
+}
+.tm-form__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tm-space-4);
+}
+.tm-form__heading small {
+  font-weight: 400;
+  letter-spacing: var(--tm-tracking-normal);
+  text-transform: none;
+  font-family: var(--tm-font-mono);
+  color: var(--tm-color-text-muted);
+}
+.tm-form__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tm-space-3);
+  padding-top: var(--tm-space-4);
+  border-top: var(--tm-border-width) solid var(--tm-color-border);
+  font-size: var(--tm-text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tm-tracking-wide);
+  text-transform: uppercase;
+  color: var(--tm-color-text-secondary);
+}
+.tm-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tm-space-2);
+  min-width: 0;
+  flex: 1;
+}
+.tm-form__label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tm-space-2);
+  font-size: var(--tm-text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tm-tracking-wide);
+  color: var(--tm-color-text-secondary);
+}
+.tm-form__label small {
+  font-weight: 400;
+  letter-spacing: var(--tm-tracking-normal);
+  color: var(--tm-color-text-muted);
+}
+.tm-form__value {
+  margin-left: auto;
+  font-family: var(--tm-font-mono);
+  font-weight: 400;
+  color: var(--tm-color-text);
+}
+.tm-form__input,
+.tm-form__textarea,
+.tm-form__select {
+  width: 100%;
+  min-height: var(--tm-touch-target);
+  padding: var(--tm-space-3) var(--tm-space-4);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-surface-sunken);
+  color: var(--tm-color-text);
+  font-family: var(--tm-font-ui);
+  font-size: var(--tm-text-md);
+  line-height: var(--tm-leading-normal);
+}
+/* single-line controls share one height so selects and inputs line up in a row (iOS draws them differently) */
+.tm-form__input,
+.tm-form__select {
+  height: var(--tm-touch-target);
+  padding-block: 0;
+}
+.tm-form__textarea {
+  font-family: var(--tm-font-body);
+  resize: vertical;
+}
+.tm-form__input:focus-visible,
+.tm-form__textarea:focus-visible,
+.tm-form__select:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--tm-color-border-strong);
+}
+.tm-form__input--mono {
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-sm);
+}
+/* the reset's iOS no-zoom clamp loses to the class rule above; re-apply it for touch */
+@media (pointer: coarse) {
+  .tm-form__input--mono {
+    font-size: max(var(--tm-text-input-min), var(--tm-text-sm));
+  }
+}
+.tm-form__range {
+  width: 100%;
+  accent-color: var(--tm-color-accent);
+}
+.tm-form__row {
+  display: flex;
+  gap: var(--tm-space-4);
+  align-items: flex-end;
+}
+.tm-form__row > .tm-form__field--narrow {
+  flex: 0 0 calc(var(--tm-avatar-size) * 2.4);
+}
+/* wrapping rows become a responsive grid: two columns on a phone, more when there is room */
+.tm-form__row--wrap {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--tm-touch-target) * 3.2), 1fr));
+  align-items: start; /* labels line up across the row */
+}
+.tm-form__row--wrap > .tm-form__field--narrow {
+  flex: none;
+}
+.tm-form__check {
+  display: flex;
+  align-items: center;
+  gap: var(--tm-space-3);
+  min-height: var(--tm-touch-target);
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-text);
+}
+.tm-form__check input {
+  accent-color: var(--tm-color-accent);
+  width: var(--tm-icon-md);
+  height: var(--tm-icon-md);
+  flex: none;
+}
+.tm-form__check small {
+  color: var(--tm-color-text-muted);
+  font-size: var(--tm-text-xs);
+}
+.tm-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tm-space-2);
+  align-items: center;
+}
+.tm-form__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tm-space-2);
+  min-height: calc(var(--tm-touch-target) * 0.8);
+  padding: 0 var(--tm-space-4);
+  border-radius: var(--tm-radius-full);
+  border: var(--tm-border-width) solid var(--tm-color-border);
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-text);
+}
+.tm-form__chip:hover:not(:disabled) {
+  background: var(--tm-color-surface-sunken);
+}
+.tm-form__chip:disabled {
+  opacity: 0.5;
+}
+.tm-form__chip--danger {
+  color: var(--tm-color-danger);
+  border-color: color-mix(in srgb, var(--tm-color-danger) 40%, var(--tm-color-border));
+}
+/* the one filled chip in a row of outline chips (sheet "完成"); same pill as its neighbours */
+.tm-form__chip--primary {
+  background: var(--tm-color-accent);
+  border-color: var(--tm-color-accent);
+  color: var(--tm-color-on-accent);
+  font-weight: 500;
+}
+.tm-form__chip--primary:hover:not(:disabled) {
+  background: var(--tm-color-accent);
+  filter: brightness(1.08);
+}
+/* small-caps group label inside a sheet (no border, unlike .tm-form__heading) */
+.tm-form__subhead {
+  font-size: var(--tm-text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tm-tracking-wide);
+  text-transform: uppercase;
+  color: var(--tm-color-text-muted);
+  padding-top: var(--tm-space-2);
+}
+.tm-form__subhead:first-child {
+  padding-top: 0;
+}
+/* input with a button glued to its right */
+.tm-form__inline {
+  display: flex;
+  gap: var(--tm-space-2);
+  align-items: center;
+}
+.tm-form__inline > .tm-form__input {
+  flex: 1;
+  min-width: 0;
+}
+/* connection status + action in one row */
+.tm-form__statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tm-space-4);
+  padding: var(--tm-space-3) var(--tm-space-4);
+  border-radius: var(--tm-radius-md);
+  border: var(--tm-border-width) solid var(--tm-color-border);
+  background: var(--tm-color-surface);
+}
+.tm-form__statusbar .tm-form__status {
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tm-space-1);
+}
+.tm-form__statusbar .tm-form__status-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tm-space-2);
+  font-weight: 500;
+}
+.tm-form__statusbar .tm-form__status-msg {
+  font-size: var(--tm-text-xs);
+  color: var(--tm-color-text-secondary);
+  overflow-wrap: anywhere;
+}
+/* sheet footer: secondary chips left, the primary one right */
+.tm-form__sheet-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tm-space-2);
+  padding-top: var(--tm-space-4);
+  border-top: var(--tm-border-width) solid var(--tm-color-border);
+}
+.tm-form__sheet-footer-group {
+  display: flex;
+  gap: var(--tm-space-2);
+}
+.tm-form__hint {
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-text-secondary);
+  line-height: var(--tm-leading-relaxed);
+}
+.tm-form__error {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--tm-space-3);
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-danger);
+}
+.tm-form__notice {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--tm-space-3);
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-text-secondary);
+}
+.tm-form__link {
+  color: var(--tm-color-text-link);
+  font-size: var(--tm-text-sm);
+  min-height: calc(var(--tm-touch-target) * 0.7);
+}
+.tm-form__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tm-space-2);
+  font-size: var(--tm-text-sm);
+}
+.tm-form__dot {
+  width: var(--tm-space-3);
+  height: var(--tm-space-3);
+  border-radius: var(--tm-radius-full);
+  background: var(--tm-color-text-muted);
+}
+.tm-form__dot--ok {
+  background: var(--tm-color-success);
+}
+.tm-form__dot--bad {
+  background: var(--tm-color-danger);
+}
+.tm-form__dot--warn {
+  background: var(--tm-color-warning);
+}
+.tm-form__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tm-space-1);
+}
+.tm-form__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--tm-space-3);
+  min-height: var(--tm-touch-target);
+  padding: var(--tm-space-2) var(--tm-space-3);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-surface);
+  border: var(--tm-border-width) solid var(--tm-color-border);
+}
+.tm-form__item.is-off {
+  opacity: 0.55;
+}
+.tm-form__item-name {
+  font-size: var(--tm-text-sm);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-form__item-meta {
+  font-size: var(--tm-text-xs);
+  color: var(--tm-color-text-muted);
+}
+.tm-form__item-actions {
+  display: flex;
+  gap: 0;
+}
+.tm-form__icon {
+  width: calc(var(--tm-touch-target) * 0.8);
+  height: calc(var(--tm-touch-target) * 0.8);
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--tm-radius-md);
+  color: var(--tm-color-text-secondary);
+}
+.tm-form__icon:hover:not(:disabled) {
+  color: var(--tm-color-text);
+  background: var(--tm-color-surface-sunken);
+}
+.tm-form__icon:disabled {
+  opacity: 0.3;
+}
+.tm-form__sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--tm-space-2);
+  padding-top: var(--tm-space-3);
+}
+.tm-form__sheet-text {
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-text-secondary);
+  line-height: var(--tm-leading-relaxed);
+  padding: var(--tm-space-1) 0;
+}
+/* read by a screen reader, not drawn */
+.tm-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

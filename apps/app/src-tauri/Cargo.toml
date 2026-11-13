@@ -1,0 +1,34 @@
+[package]
+name = "tm-app"
+version = "0.0.1"
+description = "Tavern — mobile-first SillyTavern rewrite"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "tm_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2.8.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tm-data = { path = "../../../crates/tm-data" }
+tm-tokenizers = { path = "../../../crates/tm-tokenizers" }
+tm-net = { path = "../../../crates/tm-net" }
+tm-keys = { path = "../../../crates/tm-keys" }
+# dev only: the tmhelper:// realm forwards to the Vite dev server (already linked through tm-net)
+reqwest = { version = "0.13", default-features = false }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"

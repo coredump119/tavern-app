@@ -1,0 +1,18 @@
+[package]
+name = "tm-tokenizers"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Token counting for Tavern Mobile: tiktoken (OpenAI) + HuggingFace tokenizer.json + ST-compatible estimation"
+
+[lib]
+name = "tm_tokenizers"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tiktoken-rs = "0.12.1"
+tokenizers = { version = "0.22.1", default-features = false, features = ["fancy-regex"] }

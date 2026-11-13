@@ -1,0 +1,91 @@
+/*
+ * ST compatibility alias layer. Every variable here is = var(--tm-*).
+ * For ST extensions and imported custom_css ONLY. Our components must not reference these.
+ * Contract source: SillyTavern public/style.css (see COMPAT_TARGET.md).
+ */
+:root {
+  /* ST style.css constants: theme CSS references them directly */
+  --doc-height: 100%;
+  --transparent: rgba(0, 0, 0, 0);
+  --black30a: rgba(0, 0, 0, 0.3);
+  --black50a: rgba(0, 0, 0, 0.5);
+  --black60a: rgba(0, 0, 0, 0.6);
+  --black70a: rgba(0, 0, 0, 0.7);
+  --black90a: rgba(0, 0, 0, 0.9);
+  --black100: rgba(0, 0, 0, 1);
+  --white20a: rgba(255, 255, 255, 0.2);
+  --white30a: rgba(255, 255, 255, 0.3);
+  --white50a: rgba(255, 255, 255, 0.5);
+  --white60a: rgba(255, 255, 255, 0.6);
+  --white70a: rgba(255, 255, 255, 0.7);
+  --white100: rgba(255, 255, 255, 1);
+  --grey10: rgb(25, 25, 25);
+  --grey30: rgb(75, 75, 75);
+  --grey50: rgb(125, 125, 125);
+  --grey5020a: rgba(125, 125, 125, 0.2);
+  --grey5050a: rgba(125, 125, 125, 0.5);
+  --grey70: rgb(175, 175, 175);
+  --grey75: rgb(190, 190, 190);
+  --grey30a: rgba(50, 50, 50, 0.3);
+  --grey7070a: rgba(175, 175, 175, 0.7);
+  --fullred: rgba(255, 0, 0, 1);
+  --crimson70a: rgba(100, 0, 0, 0.7);
+  --crimson-hover: rgba(150, 50, 50, 0.5);
+  --okGreen70a: rgba(0, 100, 0, 0.7);
+  --cobalt30a: rgba(100, 100, 255, 0.3);
+  --greyCAIbg: rgb(36, 36, 37);
+  --ivory: rgb(220, 220, 210);
+  --golden: rgb(248, 211, 0);
+  --warning: rgba(255, 0, 0, 0.9);
+  --active: rgb(88, 182, 0);
+  --preferred: rgb(244, 67, 54);
+  --interactable-outline-color: var(--white100);
+  --interactable-outline-color-faint: var(--white20a);
+  --reasoning-body-color: var(--SmartThemeEmColor);
+  --reasoning-em-color: color-mix(
+    in srgb,
+    var(--SmartThemeEmColor) 67%,
+    var(--SmartThemeBlurTintColor) 33%
+  );
+  --reasoning-saturation: 0.5;
+  --bottomFormBlockPadding: calc(var(--mainFontSize) / 2.5);
+  --bottomFormIconSize: calc(var(--mainFontSize) * 1.9);
+  --bottomFormBlockSize: calc(var(--bottomFormIconSize) + var(--bottomFormBlockPadding));
+  --topBarBlockPadding: calc(var(--mainFontSize) / 3);
+  --topBarIconSize: calc(var(--mainFontSize) * 2);
+  --topBarBlockSize: calc(var(--topBarIconSize) + var(--topBarBlockPadding));
+  --mes-right-spacing: 30px;
+  --inline-avatar-small-factor: 0.6;
+  --animation-duration: 125ms;
+  --animation-duration-2x: calc(var(--animation-duration) * 2);
+  --animation-duration-3x: calc(var(--animation-duration) * 3);
+  --animation-duration-slow: var(--animation-duration-3x);
+
+  --SmartThemeBodyColor: var(--tm-color-text);
+  --SmartThemeEmColor: var(--tm-color-text-em);
+  --SmartThemeUnderlineColor: var(--tm-color-text-link);
+  --SmartThemeQuoteColor: var(--tm-color-text-quote);
+  --SmartThemeBlurTintColor: var(--tm-color-surface);
+  --SmartThemeChatTintColor: var(--tm-color-bg);
+  --SmartThemeUserMesBlurTintColor: var(--tm-color-bubble-user);
+  --SmartThemeBotMesBlurTintColor: var(--tm-color-bubble-bot);
+  --SmartThemeShadowColor: var(--tm-color-shadow);
+  --SmartThemeBorderColor: var(--tm-color-border);
+  --SmartThemeBlurStrength: var(--tm-blur);
+  --SmartThemeCheckboxTickColor: var(--tm-color-on-accent);
+  --SmartThemeFastUIBGColor: var(--tm-color-surface);
+
+  --mainFontSize: var(--tm-text-md);
+  --mainFontFamily: var(--tm-font-body);
+  --monoFontFamily: var(--tm-font-mono);
+  --fontScale: var(--tm-font-scale);
+  --blurStrength: var(--tm-blur);
+  --shadowWidth: var(--tm-shadow-strength);
+  --sheldWidth: var(--tm-chat-width);
+
+  --avatar-base-width: var(--tm-avatar-size);
+  --avatar-base-height: var(--tm-avatar-size);
+  --avatar-base-border-radius: var(--tm-radius-avatar);
+  --avatar-base-border-radius-round: var(--tm-radius-full);
+  --avatar-base-border-radius-rounded: var(--tm-radius-md);
+}

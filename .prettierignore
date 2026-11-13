@@ -1,0 +1,9 @@
+node_modules
+dist
+target
+pnpm-lock.yaml
+LICENSE
+apps/app/src-tauri/gen
+packages/ui/tests/fixtures
+apps/app/src-tauri/assets/st-default-content.json
+apps/app/src-tauri/src/ipc_top_frame.js

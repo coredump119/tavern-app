@@ -1,0 +1,24 @@
+node_modules/
+dist/
+target/
+*.log
+.DS_Store
+.vite/
+.svelte-kit/
+coverage/
+# Tauri mobile generated projects are reproducible via `tauri android|ios init`
+apps/app/src-tauri/gen/android/.gradle/
+apps/app/src-tauri/gen/android/app/build/
+apps/app/src-tauri/gen/apple/build/
+# libraries for TavernHelper cards, copied from node_modules by tools/th-libs/copy.mjs
+apps/app/public/th/lib/
+# private: target extensions for compat-coverage (never commit)
+tools/compat-coverage/targets/
+tools/st-oracle/.st/
+# keys never live in the repo
+*.pem
+*.p12
+*.keystore
+*.jks
+# machine-local path remap written by tools/release-prep.sh
+/.cargo/config.toml

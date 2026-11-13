@@ -1,0 +1,35 @@
+[package]
+name = "tm-data"
+version = "0.0.1"
+description = "Tavern data layer: ST-compatible files, SQLite index, zip import/export. No Tauri dependency."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "tm_data"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tm-data"
+path = "src/bin/tm-data.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+base64 = "0.22"
+crc32fast = "1"
+thiserror = "2"
+rusqlite = { version = "0.41", features = ["bundled"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+walkdir = "2"
+regex = "1"
+# sealed backups (DEV_NOTES §9.38)
+argon2 = "0.5"
+aes-gcm = "0.10"
+getrandom = "0.3"
+zeroize = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+
+[dev-dependencies]
+tempfile = "3"

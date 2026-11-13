@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+allowBuilds:
+  # tsx (tools/st-oracle seed script) needs the esbuild binary
+  esbuild: true

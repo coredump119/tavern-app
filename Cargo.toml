@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["apps/app/src-tauri", "crates/tm-data", "crates/tm-tokenizers", "crates/tm-net", "crates/tm-keys"]
+
+[workspace.package]
+edition = "2021"
+license = "AGPL-3.0-only"
+repository = "https://github.com/coredump119/tavern-app"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

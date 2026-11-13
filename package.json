@@ -1,0 +1,28 @@
+{
+  "name": "tavern-mobile",
+  "private": true,
+  "version": "0.0.1",
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @tm/app dev",
+    "tauri": "pnpm --filter @tm/app tauri",
+    "build": "pnpm -r --filter './packages/**' build && pnpm --filter @tm/app build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "lint": "pnpm lint:tokens && pnpm prettier --check .",
+    "lint:tokens": "node tools/lint-tokens/index.mjs",
+    "bench": "pnpm --filter @tm/tool-bench bench && cargo run -q -p tm-data --release -- bench-chat",
+    "format": "prettier --write .",
+    "release:prep": "sh tools/release-prep.sh"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10",
+    "prettier-plugin-svelte": "4.1.1",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}

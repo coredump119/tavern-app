@@ -1,0 +1,334 @@
+/*
+ * Baseline for the ST utility classes extensions use in what they draw (DEV_NOTES §9.34): their
+ * settings panels, wand-menu entries and `Popup` dialogs. ST's own stylesheet is not here, so
+ * without this `menu_button` / `text_pole` / `inline-drawer` markup would be bare. Everything is
+ * inside :where(), specificity zero: an extension's or a theme's own rule always wins.
+ */
+
+/* ---- `swipe.hide()` (script.js hideSwipeButtons) ---- */
+:where(body.hideAllSwipeButtons) :where(.swipe_left, .swipe_right) {
+  display: none;
+}
+
+/* ---- Popup (popup.js): <dialog class="popup"> ---- */
+:where(dialog.popup) {
+  width: min(calc(100vw - var(--tm-gutter) * 2), var(--tm-chat-measure));
+  max-width: none;
+  max-height: calc(100dvh - var(--tm-safe-top) - var(--tm-safe-bottom) - var(--tm-space-8));
+  padding: var(--tm-space-5);
+  border: var(--tm-border-width) solid var(--tm-color-border);
+  border-radius: var(--tm-radius-lg);
+  background: var(--tm-color-surface);
+  color: var(--tm-color-text);
+  font-family: var(--tm-font-ui);
+  font-size: var(--tm-text-sm);
+  line-height: var(--tm-leading-normal);
+  box-shadow: var(--tm-shadow-3);
+}
+/* only while open: an author `display` would otherwise undo the closed dialog's `display: none` */
+:where(dialog.popup[open]) {
+  display: flex;
+  flex-direction: column;
+}
+:where(dialog.popup)::backdrop {
+  background: var(--tm-color-scrim);
+}
+:where(dialog.popup.large_dialogue_popup) {
+  height: 100dvh;
+}
+:where(dialog.popup.transparent_dialogue_popup) {
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+/* basis `auto`, not 0: WebKit resolves a zero basis against the dialog's fit-content height as 0 */
+:where(dialog.popup) :where(.popup-body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tm-space-4);
+}
+:where(dialog.popup) :where(.popup-content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+:where(dialog.popup.left_aligned_dialogue_popup) :where(.popup-content) {
+  text-align: start;
+}
+:where(dialog.popup.horizontal_scrolling_dialogue_popup) :where(.popup-content) {
+  overflow-x: auto;
+}
+:where(dialog.popup) :where(.popup-content h3) {
+  margin-bottom: var(--tm-space-3);
+  font-size: var(--tm-text-md);
+  font-weight: 600;
+}
+:where(dialog.popup) :where(.popup-controls) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--tm-space-2);
+}
+:where(dialog.popup) :where(.popup-button-close) {
+  position: absolute;
+  top: var(--tm-space-2);
+  right: var(--tm-space-2);
+  width: calc(var(--tm-touch-target) * 0.8);
+  height: calc(var(--tm-touch-target) * 0.8);
+  display: grid;
+  place-items: center;
+  border-radius: var(--tm-radius-full);
+  color: var(--tm-color-text-secondary);
+  font-size: var(--tm-text-lg);
+  cursor: pointer;
+}
+
+/* ---- controls ---- */
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.menu_button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tm-space-2);
+  min-height: calc(var(--tm-touch-target) * 0.8);
+  padding: 0 var(--tm-space-4);
+  border: var(--tm-border-width) solid var(--tm-color-border);
+  border-radius: var(--tm-radius-full);
+  color: var(--tm-color-text);
+  font-size: var(--tm-text-sm);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.menu_button:hover) {
+  background: var(--tm-color-surface-sunken);
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.menu_button.disabled, .menu_button:disabled) {
+  opacity: 0.5;
+  pointer-events: none;
+}
+:where(dialog.popup) :where(.menu_button.menu_button_default) {
+  border-color: var(--tm-color-accent);
+}
+:where(#extensions_settings, #extensions_settings2, dialog.popup)
+  :where(
+    .text_pole,
+    select,
+    textarea,
+    input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color'])
+  ) {
+  width: 100%;
+  min-height: var(--tm-touch-target);
+  padding: var(--tm-space-2) var(--tm-space-4);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-surface-sunken);
+  color: var(--tm-color-text);
+  line-height: var(--tm-leading-normal);
+}
+:where(#extensions_settings, #extensions_settings2, dialog.popup)
+  :where(input[type='checkbox'], input[type='radio']) {
+  flex: none;
+  width: var(--tm-icon-md);
+  height: var(--tm-icon-md);
+  accent-color: var(--tm-color-accent);
+}
+:where(#extensions_settings, #extensions_settings2, dialog.popup) :where(input[type='range']) {
+  width: 100%;
+  accent-color: var(--tm-color-accent);
+}
+:where(#extensions_settings, #extensions_settings2, dialog.popup) :where(.checkbox_label) {
+  display: flex;
+  align-items: center;
+  gap: var(--tm-space-3);
+  min-height: calc(var(--tm-touch-target) * 0.8);
+}
+:where(#extensions_settings, #extensions_settings2, dialog.popup) :where(hr) {
+  width: 100%;
+  margin: var(--tm-space-3) 0;
+  border: 0;
+  border-top: var(--tm-border-width) solid var(--tm-color-border);
+}
+:where(#extensions_settings, #extensions_settings2, dialog.popup) :where(a) {
+  color: var(--tm-color-accent);
+  text-decoration: underline;
+}
+
+/* ---- layout helpers (ST style.css names) ---- */
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.flex-container) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tm-space-2);
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.flexFlowColumn) {
+  flex-flow: column;
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.flexNoGap) {
+  gap: 0;
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup) :where(.flex1) {
+  flex: 1;
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.alignItemsCenter, .alignitemscenter) {
+  align-items: center;
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.justifyCenter) {
+  justify-content: center;
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.justifySpaceBetween) {
+  justify-content: space-between;
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.wide100p) {
+  width: 100%;
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.textAlignCenter) {
+  text-align: center;
+}
+:where(#extensions_settings, #extensions_settings2, #extensionsMenu, dialog.popup)
+  :where(.displayNone) {
+  display: none !important;
+}
+
+/* ---- settings panels: #extensions_settings / #extensions_settings2 ---- */
+:where(#extensions_settings, #extensions_settings2) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tm-space-3);
+  font-size: var(--tm-text-sm);
+  line-height: var(--tm-leading-normal);
+}
+:where(#extensions_settings, #extensions_settings2):empty {
+  display: none;
+}
+:where(#extensions_settings, #extensions_settings2, dialog.popup) :where(.inline-drawer) {
+  border: var(--tm-border-width) solid var(--tm-color-border);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-surface);
+}
+:where(#extensions_settings, #extensions_settings2, dialog.popup) :where(.inline-drawer-header) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tm-space-3);
+  min-height: var(--tm-touch-target);
+  padding: 0 var(--tm-space-4);
+  font-weight: 500;
+  cursor: pointer;
+}
+/* closed until toggled; the host's click handler sets `display` inline, as ST's slideToggle does */
+:where(#extensions_settings, #extensions_settings2, dialog.popup) :where(.inline-drawer-content) {
+  display: none;
+  padding: var(--tm-space-2) var(--tm-space-4) var(--tm-space-4);
+}
+:where(#extensions_settings, #extensions_settings2, dialog.popup) :where(.inline-drawer-icon) {
+  color: var(--tm-color-text-secondary);
+}
+
+/* ---- wand menu: #extensionsMenu ---- */
+:where(#extensionsMenu) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tm-space-1);
+}
+:where(#extensionsMenu) :where(.extension_container) {
+  display: contents;
+}
+:where(#extensionsMenu) :where(.list-group-item) {
+  display: flex;
+  align-items: center;
+  gap: var(--tm-space-3);
+  min-height: var(--tm-touch-target);
+  padding: 0 var(--tm-space-3);
+  border-radius: var(--tm-radius-md);
+  color: var(--tm-color-text);
+  font-size: var(--tm-text-sm);
+  cursor: pointer;
+}
+:where(#extensionsMenu) :where(.list-group-item:hover) {
+  background: var(--tm-color-surface-sunken);
+}
+
+/* ---- nav list: a drawer button an extension added to #top-settings-holder ---- */
+:where(#top-settings-holder) > :where(div.drawer) :where(.drawer-toggle) {
+  display: flex;
+  align-items: center;
+  min-height: var(--tm-touch-target);
+  padding: var(--tm-space-3) var(--tm-space-4);
+  border-radius: var(--tm-radius-md);
+  color: var(--tm-color-text-secondary);
+  cursor: pointer;
+}
+:where(#top-settings-holder) > :where(div.drawer) :where(.drawer-toggle:hover) {
+  background: var(--tm-color-surface-sunken);
+}
+:where(#top-settings-holder) > :where(div.drawer) :where(.drawer-icon) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tm-space-3);
+  font-size: var(--tm-text-md);
+}
+/* ST shows only the icon; the nav list has rows, so the tooltip is the row's text */
+:where(#top-settings-holder) > :where(div.drawer) :where(.drawer-icon[title])::after {
+  content: attr(title);
+  font-family: var(--tm-font-ui);
+  font-size: var(--tm-text-sm);
+  font-weight: 500;
+}
+
+/* ---- quick-reply bar: #qr--bar in #send_form (ST Quick Reply's layout) ---- */
+:where(#send_form) > :where(#qr--bar) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--tm-space-1) var(--tm-space-2);
+}
+:where(#qr--bar) > :where(.qr--buttons) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--tm-space-2);
+  margin: 0;
+  padding: 0;
+}
+:where(#qr--bar) :where(.qr--button) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tm-space-1);
+  padding: var(--tm-space-1) var(--tm-space-3);
+  border: var(--tm-border-width) solid var(--tm-color-border);
+  border-radius: var(--tm-radius-md);
+  color: var(--tm-color-text-secondary);
+  font-size: var(--tm-text-xs);
+  cursor: pointer;
+}
+/* nothing in it yet: no gap above the input row */
+:where(#qr--bar):empty {
+  display: none;
+}
+
+/* ---- text fields an extension styles itself ---- */
+/*
+ * ST pins the viewport scale, so extensions ship fields under 16px; here iOS would zoom the page on
+ * focus and leave it zoomed. Not in :where() and `!important`: this one must beat the extension's rule.
+ */
+@media (pointer: coarse) {
+  input:not([class*='tm-'], [type='checkbox'], [type='radio'], [type='range'], [type='file']),
+  select:not([class*='tm-']),
+  textarea:not([class*='tm-']) {
+    font-size: max(var(--tm-text-input-min), var(--tm-text-md)) !important;
+  }
+}

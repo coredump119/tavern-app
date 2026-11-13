@@ -1,0 +1,10 @@
+/* an extension's own stylesheet: plain ST-style CSS, on purpose not this app's tokens */
+.tm-sample-log {
+  margin: 0;
+  padding: 0 0 0 1.2em;
+  font-size: 0.85em;
+}
+.tm-sample-log li[data-ok='false'] {
+  font-weight: 600;
+  text-decoration: underline;
+}
