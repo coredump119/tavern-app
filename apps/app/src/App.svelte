@@ -58,8 +58,8 @@
     'connection',
     'presets',
     'data',
-    'styleguide',
-    'netcheck',
+    // development pages exist only in dev builds
+    ...(import.meta.env.DEV ? (['styleguide', 'netcheck'] as const) : []),
   ];
   // $state: the second effect must re-run once the restore happened, not only when `route` changes
   let restored = $state(false);
@@ -123,15 +123,7 @@
       {immersive}
     />
     {#if route === 'chat'}
-      <Chat
-        onOpenCharacters={() => (route = 'characters')}
-        onEditCharacter={editCharacter}
-        onEditGroup={editGroup}
-        onTitle={(t, sub) => {
-          chatTitle = t;
-          chatSubtitle = sub;
-        }}
-      />
+      <!-- drawn below: the page stays mounted, so a reply keeps streaming while another page is open -->
     {:else if route === 'characters'}
       <Characters
         onOpen={() => (route = 'chat')}
@@ -186,6 +178,16 @@
     {:else}
       <Styleguide />
     {/if}
+    <Chat
+      active={route === 'chat'}
+      onOpenCharacters={() => (route = 'characters')}
+      onEditCharacter={editCharacter}
+      onEditGroup={editGroup}
+      onTitle={(t, sub) => {
+        chatTitle = t;
+        chatSubtitle = sub;
+      }}
+    />
     <Extensions active={route === 'extensions'} />
   {/snippet}
   {#snippet inspector()}

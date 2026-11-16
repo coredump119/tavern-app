@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::card::{sanitize_filename, CardError};
-use crate::layout::USER_IMAGES;
+use crate::layout::{BACKGROUNDS, USER_IMAGES};
 
 /// ST `MEDIA_EXTENSIONS` (constants.js) — what `/api/images/upload` accepts.
 pub const MEDIA_EXTENSIONS: &[&str] = &[
@@ -66,6 +66,28 @@ pub fn save_media(
     std::fs::rename(&tmp, &dest)?;
     // ST clientRelativePath: root-relative with a leading slash
     Ok(format!("/{USER_IMAGES}/{folder}/{name}"))
+}
+
+/// What a chat background may be (DEV_NOTES §9.42).
+pub const BACKGROUND_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "webp", "gif", "avif", "bmp", "heic", "heif",
+];
+
+/// ST `/api/backgrounds/upload`: copy a picked image into `backgrounds/` under its sanitized
+/// original name (an existing file of that name is replaced) and return the stored file name.
+pub fn save_background(root: &Path, src: &Path, file_name: &str) -> Result<String, CardError> {
+    let name = sanitize_filename(file_name);
+    let ext = extension_of(Path::new(&name))
+        .ok_or_else(|| CardError::Image("file has no extension".into()))?;
+    if !BACKGROUND_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(CardError::Image(format!("unsupported image type: .{ext}")));
+    }
+    let dir: PathBuf = root.join(BACKGROUNDS);
+    std::fs::create_dir_all(&dir)?;
+    let tmp = dir.join(format!("{name}.tmp"));
+    std::fs::copy(src, &tmp)?;
+    std::fs::rename(&tmp, dir.join(&name))?;
+    Ok(name)
 }
 
 /// What `save_media_base64` refuses, with ST's reply text for each.
@@ -255,6 +277,24 @@ pub fn save_group_avatar(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_keeps_its_name_and_replaces_an_older_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let src = root.join("pick.bin");
+        std::fs::write(&src, b"one").unwrap();
+        assert_eq!(
+            save_background(root, &src, "night sky.JPG").unwrap(),
+            "night sky.JPG"
+        );
+        std::fs::write(&src, b"two").unwrap();
+        save_background(root, &src, "night sky.JPG").unwrap();
+        let stored = root.join(BACKGROUNDS).join("night sky.JPG");
+        assert_eq!(std::fs::read(stored).unwrap(), b"two");
+        assert!(save_background(root, &src, "notes.txt").is_err());
+        assert!(save_background(root, &src, "noext").is_err());
+    }
 
     #[test]
     fn group_avatar_is_a_jpeg_thumbnail_in_the_group_folder() {

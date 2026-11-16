@@ -22,6 +22,10 @@
   import Button from '@tm/ui/components/Button.svelte';
   import BottomSheet from '../BottomSheet.svelte';
   import { chatStore } from '../../chat/store.svelte';
+  import { pickFiles, readPickedJson } from '../../files';
+  import { askPopup } from '../../popup.svelte';
+  import { allowPresetRegexOnce } from '../../regex';
+  import { mainApiOf } from '../../chat/core-state';
   import {
     TC_PRESET_DIR,
     TEMPLATE_DIRS,
@@ -117,8 +121,15 @@
       if (r.maxContext !== undefined) maxContext = r.maxContext;
       pu['max_context_unlocked'] = r.maxContextUnlocked;
       persist();
+      const regex = allowPresetRegexOnce(
+        store.settings ? ($state.snapshot(store.settings) as Record<string, unknown>) : null,
+        mainApiOf(store.settings),
+        name,
+        tg['extensions'],
+      );
+      if (regex) persistSettings({ extension_settings: regex.extensionSettings });
       await flushSettings();
-      notice = `已应用预设「${name}」`;
+      notice = `已应用预设「${name}」${regex ? `，它自带的 ${regex.count} 条正则已开启（可在「正则脚本」里关）` : ''}`;
     } catch (e) {
       error = msg(e);
     } finally {
@@ -141,6 +152,36 @@
     } finally {
       busy = null;
       saveAsOpen = false;
+    }
+  }
+  /** ST preset manager import: the file name becomes the preset name, then it is applied */
+  async function importPreset() {
+    if (!store.root) return;
+    const [file] = await pickFiles({ extensions: ['json'], title: '预设' });
+    if (!file) return;
+    busy = '导入预设…';
+    error = null;
+    try {
+      const body = await readPickedJson(file);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('不是预设文件');
+      const base = decodeURIComponent(file.split(/[\\/]/).pop() ?? file);
+      const name = base.replace(/\.[^/.]+$/, '');
+      if (presets.includes(name)) {
+        const ok = await askPopup({
+          kind: 'confirm',
+          title: '覆盖预设',
+          text: `已经有叫「${name}」的预设，覆盖它？`,
+          okButton: '覆盖',
+        });
+        if (ok !== true) return;
+      }
+      const stored = await writeTcPreset(store.root, name, body as Record<string, unknown>);
+      await refreshLists();
+      await choosePreset(stored);
+    } catch (e) {
+      error = msg(e);
+    } finally {
+      busy = null;
     }
   }
   async function removePreset() {
@@ -234,6 +275,7 @@
         saveAsOpen = true;
       }}>另存为…</Button
     >
+    <Button variant="outline" size="sm" disabled={!!busy} onclick={importPreset}>导入</Button>
     <Button
       variant="ghost"
       size="sm"

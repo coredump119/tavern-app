@@ -8,9 +8,11 @@
     onClose: () => void;
     /** draw above everything, extension panels included (popups the user must answer) */
     system?: boolean;
+    /** open scrolled to the end: for a list whose most used rows are the last ones, by the thumb */
+    startAtEnd?: boolean;
     children: Snippet;
   }
-  let { open, title, id, onClose, system = false, children }: Props = $props();
+  let { open, title, id, onClose, system = false, startAtEnd = false, children }: Props = $props();
 
   let sheet = $state<HTMLElement>();
   const isTextField = (el: Element) =>
@@ -25,6 +27,7 @@
     const inside = !!active && el.contains(active);
     const opener = !inside && active instanceof HTMLElement ? active : null;
     if (!inside) el.focus({ preventScroll: true });
+    if (startAtEnd) el.scrollTop = el.scrollHeight;
     return () => {
       const now = document.activeElement;
       const free = !now || now === document.body || el.contains(now);

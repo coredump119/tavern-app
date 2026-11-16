@@ -1,4 +1,7 @@
 import './app.css';
+// bundled CJK serif, regular + bold; the slices load on demand (DEV_NOTES §9.43)
+import '@fontsource/noto-serif-sc/400.css';
+import '@fontsource/noto-serif-sc/700.css';
 import { mount } from 'svelte';
 import App from './App.svelte';
 import { installInsetsBridge, installKeyboardInset } from './lib/insets';

@@ -272,6 +272,13 @@ class ChatStore {
     if (!this.root) return;
     this.loading = true;
     this.error = null;
+    // what was open comes back if this character's chat cannot be read (see openChat)
+    const before = {
+      character: this.character,
+      group: this.group,
+      members: this.members,
+      chats: this.chats,
+    };
     try {
       const json = await cardRead(`${this.root}/characters/${avatar}`);
       const flushed = this.flushDeferred();
@@ -284,7 +291,11 @@ class ChatStore {
       if (target) await this.openChat(target);
       else await this.newChat();
     } catch (e) {
-      this.error = String(e);
+      this.character = before.character;
+      this.group = before.group;
+      this.members = before.members;
+      this.chats = before.chats;
+      this.error = `打不开这个聊天：${e instanceof Error ? e.message : String(e)}`;
     } finally {
       this.loading = false;
     }
@@ -376,11 +387,37 @@ class ChatStore {
     this.chats = rows;
   }
 
+  /**
+   * Switch to another chat file of the open character / group. All or nothing: when the file
+   * cannot be read, the chat that was open stays open — otherwise the old messages would sit
+   * under the new file name and the next save would write them into it (DEV_NOTES §9.41).
+   */
   async openChat(file: string): Promise<void> {
     if (!this.root || !this.open) return;
     const flushed = this.flushDeferred();
+    const before = {
+      chatFile: this.chatFile,
+      header: this.header,
+      messages: this.messages,
+      total: this.total,
+    };
     this.chatFile = file;
     await flushed;
+    try {
+      await this.loadChatFile(file);
+    } catch (e) {
+      this.chatFile = before.chatFile;
+      this.header = before.header;
+      this.messages = before.messages;
+      this.total = before.total;
+      throw e;
+    }
+    await this.remember();
+    await this.applyPersonaForChat();
+  }
+
+  private async loadChatFile(file: string): Promise<void> {
+    if (!this.root) return;
     const path = this.chatPath!;
     if (this.group) {
       const chatId = file.replace(/\.jsonl$/i, '');
@@ -411,12 +448,11 @@ class ChatStore {
       }
     } else {
       const tail = await chatReadTail(path, 100_000);
-      this.header = parseChatHeader(JSON.parse(tail.header));
+      const header = parseChatHeader(JSON.parse(tail.header));
       this.messages = tail.messages.map((l) => parseChatMessage(JSON.parse(l)));
+      this.header = header;
       this.total = tail.total;
     }
-    await this.remember();
-    await this.applyPersonaForChat();
   }
 
   /**

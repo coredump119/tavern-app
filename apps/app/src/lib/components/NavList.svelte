@@ -38,8 +38,13 @@
     { id: 'connection', label: 'API 连接', hint: '来源 / 密钥 / 模型' },
     { id: 'presets', label: '预设 / 采样', hint: '预设、采样参数、格式模板' },
     { id: 'data', label: '数据与备份', hint: '备份 zip、导入、索引' },
-    { id: 'styleguide', label: '设计系统', hint: '令牌与排版' },
-    { id: 'netcheck', label: '网络自检', hint: '流式 / 中断 / 切后台' },
+    // development pages: not in release builds (DEV_NOTES §9.41)
+    ...(import.meta.env.DEV
+      ? ([
+          { id: 'styleguide', label: '设计系统', hint: '令牌与排版' },
+          { id: 'netcheck', label: '网络自检', hint: '流式 / 中断 / 切后台' },
+        ] as const)
+      : []),
   ];
 </script>
 

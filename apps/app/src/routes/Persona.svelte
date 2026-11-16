@@ -109,22 +109,44 @@
     }
   });
 
+  /**
+   * iOS does not take focus away from a text field when a button is tapped, so the field's `change`
+   * has not fired yet and the next settings write would put the old text back (DEV_NOTES §9.41).
+   * Blurring commits it; the edit it triggers is queued ahead of the caller's.
+   */
+  let committing = false;
+  function commitFocusedField() {
+    if (committing) return;
+    const el = document.activeElement;
+    if (!(el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement)) return;
+    committing = true;
+    el.blur();
+    committing = false;
+  }
+
+  /** edits run one after another: each starts from the settings the previous one saved */
+  let queue: Promise<void> = Promise.resolve();
+
   /** Edit settings on a snapshot through `fn`, then persist (and the chat header when `meta` changed). */
-  async function mutate(
+  function mutate(
     fn: (settings: Record<string, unknown>, meta: Record<string, unknown> | null) => void,
-  ) {
-    if (!store.settings) return;
-    const next = structuredClone($state.snapshot(store.settings)) as Record<string, unknown>;
-    const meta = metaPlain ? (structuredClone(metaPlain) as Record<string, unknown>) : null;
-    const before = meta ? JSON.stringify(meta) : null;
-    fn(next, meta);
-    try {
-      await store.saveSettings(next);
-      if (meta && JSON.stringify(meta) !== before)
-        await store.setChatMetadata({ persona: meta['persona'] });
-    } catch (e) {
-      error = msg(e);
-    }
+  ): Promise<void> {
+    commitFocusedField();
+    queue = queue.then(async () => {
+      if (!store.settings) return;
+      const next = structuredClone($state.snapshot(store.settings)) as Record<string, unknown>;
+      const meta = metaPlain ? (structuredClone(metaPlain) as Record<string, unknown>) : null;
+      const before = meta ? JSON.stringify(meta) : null;
+      fn(next, meta);
+      try {
+        await store.saveSettings(next);
+        if (meta && JSON.stringify(meta) !== before)
+          await store.setChatMetadata({ persona: meta['persona'] });
+      } catch (e) {
+        error = msg(e);
+      }
+    });
+    return queue;
   }
 
   // ---- backup / restore / name attribution (DEV_NOTES §9.35) ----

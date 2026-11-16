@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   analyzeCustomCss,
+  customCssFonts,
   effectiveCustomCss,
   importStTheme,
   importStThemes,
@@ -14,6 +15,7 @@ import {
   scopeScriptCss,
   serializeCss,
   themeToBodyClasses,
+  themeToCssVars,
 } from '../src/index.js';
 
 /** synthetic beautification theme (DEV_NOTES §9.28: users' own themes never go in the repo) */
@@ -259,5 +261,41 @@ describe('scopeScriptCss', () => {
 
   it('returns nothing for blank input', () => {
     expect(scopeScriptCss('  \n')).toBe('');
+  });
+});
+
+describe('page-wide fonts set by custom css', () => {
+  it('reads --mainFontFamily / --monoFontFamily and a font-family on body, html, :root or *', () => {
+    expect(
+      customCssFonts(':root { --mainFontFamily: "Lora", serif; --monoFontFamily: Menlo }'),
+    ).toEqual({ main: '"Lora", serif', mono: 'Menlo' });
+    expect(customCssFonts('html, body { font-family: Georgia, serif !important; }').main).toBe(
+      'Georgia, serif',
+    );
+    expect(customCssFonts('@media (min-width: 1px) { * { font-family: "A B" } }').main).toBe(
+      '"A B"',
+    );
+  });
+
+  it('prefers the variable, lets later rules win, ignores narrower selectors and self-references', () => {
+    expect(
+      customCssFonts(
+        'body { font-family: One } :root { --mainFontFamily: Two } body { font-family: Three }',
+      ).main,
+    ).toBe('Two');
+    expect(customCssFonts('body { font-family: One } body { font-family: Two }').main).toBe('Two');
+    expect(customCssFonts('.mes_text { font-family: X } body.foo { font-family: Y }')).toEqual({});
+    expect(
+      customCssFonts('body { font-family: var(--mainFontFamily) } * { font-family: inherit }'),
+    ).toEqual({});
+  });
+
+  it('puts the css font in front of the theme font, only while the css is on', () => {
+    const base = parseTheme({ name: 't', customCss: 'body { font-family: "Lora", serif }' });
+    const on = themeToCssVars(base);
+    expect(on['--tm-font-body']).toBe('"Lora", serif, var(--tm-font-serif)');
+    expect(on['--tm-font-ui']).toBe('"Lora", serif, var(--tm-font-sans)');
+    const off = themeToCssVars(parseTheme({ ...base, customCssEnabled: false }));
+    expect(off['--tm-font-body']).toBe('var(--tm-font-serif)');
   });
 });

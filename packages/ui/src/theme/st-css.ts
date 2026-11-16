@@ -424,6 +424,50 @@ export function scopeScriptCss(css: string): string {
   return serializeCss(scopeNodes(parseCss(css)));
 }
 
+/** selectors that set the page-wide font in ST (its own body rule is `font-family: var(--mainFontFamily)`) */
+const BASE_FONT_SELECTORS = new Set(['body', 'html', ':root', '*']);
+
+export interface CustomCssFonts {
+  /** page-wide font stack the CSS asks for (`--mainFontFamily`, or `font-family` on body / html / :root / *) */
+  main?: string;
+  /** `--monoFontFamily` */
+  mono?: string;
+}
+
+/**
+ * The fonts a theme's custom CSS sets for the whole page. Our components name their font through
+ * `--tm-font-*`, so a plain `body { font-family }` would never reach them; the caller feeds these
+ * into the tokens instead (DEV_NOTES §9.41). Later rules win; the variable beats a `font-family`.
+ */
+export function customCssFonts(css: string): CustomCssFonts {
+  const out: CustomCssFonts = {};
+  let fromVar = false;
+  const usable = (v: string) =>
+    v !== '' &&
+    !/^(inherit|initial|unset|revert)$/i.test(v) &&
+    !/var\(\s*--mainFontFamily/i.test(v);
+  const walk = (nodes: readonly CssNode[]) => {
+    for (const n of nodes) {
+      if (n.kind === 'at-block') walk(n.body);
+      else if (n.kind === 'rule') {
+        if (!splitSelectors(n.selector).some((s) => BASE_FONT_SELECTORS.has(s.toLowerCase())))
+          continue;
+        for (const d of n.decls) {
+          const value = d.value.replace(/\s*!important\s*$/i, '').trim();
+          if (!usable(value)) continue;
+          if (d.prop === '--mainFontFamily') {
+            out.main = value;
+            fromVar = true;
+          } else if (d.prop === '--monoFontFamily') out.mono = value;
+          else if (d.prop.toLowerCase() === 'font-family' && !fromVar) out.main = value;
+        }
+      }
+    }
+  };
+  walk(parseCss(css));
+  return out;
+}
+
 export interface CustomCssReport {
   rules: number;
   /** declarations that would be dropped in appearance-only mode */

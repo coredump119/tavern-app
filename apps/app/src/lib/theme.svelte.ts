@@ -12,6 +12,28 @@ import {
 const STORAGE_KEY = 'tm.theme.v1';
 /** imported themes (ST / tm-theme files) so the list survives a relaunch */
 const IMPORTED_KEY = 'tm.theme.imported.v1';
+/** edits made to a built-in theme, by name, so switching away and back keeps them (DEV_NOTES §9.41) */
+const EDITED_KEY = 'tm.theme.edited.v1';
+
+function loadEdited(): Record<string, Theme> {
+  const out: Record<string, Theme> = {};
+  try {
+    const raw = localStorage.getItem(EDITED_KEY);
+    const map: unknown = raw ? JSON.parse(raw) : null;
+    if (!map || typeof map !== 'object') return out;
+    for (const [name, item] of Object.entries(map)) {
+      if (!BUILTIN_THEMES.some((t) => t.name === name)) continue;
+      try {
+        out[name] = parseTheme(item);
+      } catch {
+        /* skip a corrupt entry */
+      }
+    }
+  } catch {
+    /* fall through to none */
+  }
+  return out;
+}
 
 function loadImported(): Theme[] {
   try {
@@ -44,36 +66,59 @@ function load(): Theme {
   return BUILTIN_THEMES[prefersDark ? 1 : 0]!;
 }
 
+/**
+ * Keep `key` in step with `value()`, except at startup: what was just loaded is not written back.
+ * A read that came back empty or unreadable once (it happened on the simulator) would otherwise
+ * replace the stored selection, or the whole list of imported themes, with the fallback
+ * (DEV_NOTES §9.44). Call inside an effect root.
+ */
+function persistAfterStart(key: string, value: () => unknown): void {
+  let started = false;
+  $effect(() => {
+    const text = JSON.stringify(value());
+    if (!started) {
+      started = true;
+      return;
+    }
+    try {
+      localStorage.setItem(key, text);
+    } catch {
+      /* storage unavailable or full */
+    }
+  });
+}
+
 class ThemeStore {
   current = $state<Theme>(load());
-  readonly builtins = BUILTIN_THEMES;
+  edited = $state<Record<string, Theme>>(loadEdited());
+  /** built-in themes as the list shows them: the user's edited copy when there is one */
+  readonly builtins = $derived(BUILTIN_THEMES.map((t) => this.edited[t.name] ?? t));
   imported = $state<Theme[]>(loadImported());
 
   constructor() {
     $effect.root(() => {
       $effect(() => {
         applyTheme(this.current);
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(this.current));
-        } catch {
-          /* storage unavailable */
-        }
       });
       // edits to an imported theme stick to its list entry (matched by name)
       $effect(() => {
         const cur = $state.snapshot(this.current) as Theme;
         untrack(() => {
           const i = this.imported.findIndex((t) => t.name === cur.name);
-          if (i >= 0) this.imported[i] = cur;
+          if (i >= 0) {
+            this.imported[i] = cur;
+            return;
+          }
+          // same for a built-in one: keep the edited copy, drop it once it matches the original again
+          const base = BUILTIN_THEMES.find((t) => t.name === cur.name);
+          if (!base) return;
+          if (JSON.stringify(cur) === JSON.stringify(base)) delete this.edited[cur.name];
+          else this.edited[cur.name] = cur;
         });
       });
-      $effect(() => {
-        try {
-          localStorage.setItem(IMPORTED_KEY, JSON.stringify(this.imported));
-        } catch {
-          /* storage unavailable or full */
-        }
-      });
+      persistAfterStart(STORAGE_KEY, () => this.current);
+      persistAfterStart(IMPORTED_KEY, () => this.imported);
+      persistAfterStart(EDITED_KEY, () => this.edited);
     });
   }
 
@@ -103,6 +148,18 @@ class ThemeStore {
     this.current =
       themes.find((t) => t.appearance === (prefersDark ? 'dark' : 'light')) ?? themes[0]!;
     return themes;
+  }
+
+  isEdited(name: string): boolean {
+    return name in this.edited;
+  }
+
+  /** Throw away the edits made to a built-in theme. */
+  resetBuiltin(name: string) {
+    const base = BUILTIN_THEMES.find((t) => t.name === name);
+    if (!base) return;
+    delete this.edited[name];
+    if (this.current.name === name) this.current = base;
   }
 
   removeImported(name: string) {

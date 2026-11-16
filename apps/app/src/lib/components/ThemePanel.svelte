@@ -5,6 +5,9 @@
   import { themeStore } from '../theme.svelte';
   import { downloadText } from '../download';
   import Icon from './Icon.svelte';
+  import BackgroundPicker from './BackgroundPicker.svelte';
+  import { chatStore } from '../chat/store.svelte';
+  import { activeBackgroundRel } from '@tm/core';
 
   let error = $state<string | null>(null);
   /** the custom CSS editor is open */
@@ -12,6 +15,10 @@
   let fileInput = $state<HTMLInputElement | null>(null);
 
   const t = $derived(themeStore.current);
+  /** a picked background image is showing: the opacity / blur sliders apply to it too */
+  const hasBackgroundImage = $derived(
+    !!activeBackgroundRel(chatStore.settings, chatStore.open ? chatStore.chatMetadata : null),
+  );
   /** what the theme's custom_css would change (DEV_NOTES §9.28) */
   const cssReport = $derived(t.customCss ? analyzeCustomCss(t.customCss) : null);
 
@@ -34,15 +41,23 @@
     <h2 class="tm-label">主题</h2>
     <ul class="tm-theme-list">
       {#each themeStore.builtins as th (th.name)}
-        <li>
+        {@const edited = themeStore.isEdited(th.name)}
+        <li class:tm-theme-row={edited}>
           <button
             class="tm-theme-item"
             class:is-active={th.name === t.name}
             onclick={() => themeStore.set(th)}
           >
-            <span class="tm-theme-item__name">{th.name}</span>
+            <span class="tm-theme-item__name">{th.name}{edited ? '（已改）' : ''}</span>
             <span class="tm-theme-item__meta">{th.appearance} · {th.typography.body}</span>
           </button>
+          {#if edited}
+            <button
+              class="tm-theme-row__reset"
+              aria-label="把 {th.name} 恢复成默认"
+              onclick={() => themeStore.resetBuiltin(th.name)}>恢复默认</button
+            >
+          {/if}
         </li>
       {/each}
       {#each themeStore.imported as th (th.name)}
@@ -316,15 +331,16 @@
 
   <section class="tm-panel__section">
     <h2 class="tm-label">背景</h2>
+    {#if chatStore.root}<BackgroundPicker />{/if}
     <label class="checkbox_label tm-check">
       <input
         type="checkbox"
         checked={t.background.avatar}
         onchange={(e) => themeStore.patch({ background: { avatar: e.currentTarget.checked } })}
       />
-      <span>用角色头像作聊天背景</span>
+      <span>用角色头像作聊天背景 <span class="tm-field__value">没选背景图时用</span></span>
     </label>
-    {#if t.background.avatar}
+    {#if t.background.avatar || hasBackgroundImage}
       <label class="tm-field">
         <span class="tm-field__name"
           >不透明度 <span class="tm-field__value">{Math.round(t.background.opacity * 100)}%</span
@@ -456,6 +472,14 @@
   .tm-theme-row .tm-theme-item {
     flex: 1;
     min-width: 0;
+  }
+  .tm-theme-row__reset {
+    flex: none;
+    min-height: var(--tm-touch-target);
+    padding: 0 var(--tm-space-3);
+    border-radius: var(--tm-radius-md);
+    font-size: var(--tm-text-xs);
+    color: var(--tm-color-text-muted);
   }
   .tm-theme-row__remove {
     flex: none;

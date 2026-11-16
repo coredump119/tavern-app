@@ -236,15 +236,6 @@
         <span class="avatar tm-avatar" aria-hidden="true">{name.slice(0, 1)}</span>
       {/if}
     {/if}
-    {#if showSwipes && swipe && swipe.id > 0}
-      <button
-        class="swipe_left tm-mes__swipe tm-mes__swipe--left"
-        aria-label="上一个回复"
-        onclick={() => onSwipe?.(-1)}
-      >
-        <Icon name="chevron-left" />
-      </button>
-    {/if}
   </div>
   <div class="mes_block tm-mes__block">
     <header class="ch_name tm-mes__head" class:tm-mes__head--grouped={grouped}>
@@ -501,17 +492,28 @@
       </div>
     {/if}
     {#if showSwipes && swipe}
-      <div class="tm-mes__swipe-right-wrap">
+      <!-- one row, both arrows: it does not depend on the avatar column (themes hide that) and
+           sticks to the bottom of the list while a long message is on screen (DEV_NOTES §9.41) -->
+      <div class="tm-mes__swipes">
         <button
-          class="swipe_right tm-mes__swipe tm-mes__swipe--right"
+          class="swipe_left tm-mes__swipe"
+          class:tm-mes__swipe--off={swipe.id === 0}
+          aria-label="上一个回复"
+          disabled={swipe.id === 0}
+          onclick={() => onSwipe?.(-1)}
+        >
+          <Icon name="chevron-left" />
+        </button>
+        <span class="swipes-counter tm-mes__counter"
+          >{#if swipe.count > 1}{swipe.id + 1}/{swipe.count}{/if}</span
+        >
+        <button
+          class="swipe_right tm-mes__swipe"
           aria-label="下一个回复 / 换一个"
           onclick={() => onSwipe?.(1)}
         >
           <Icon name="chevron-right" />
         </button>
-        {#if swipe.count > 1}<span class="swipes-counter tm-mes__counter"
-            >{swipe.id + 1}/{swipe.count}</span
-          >{/if}
       </div>
     {/if}
   </div>
@@ -787,22 +789,30 @@
     height: var(--tm-touch-target);
     border-radius: var(--tm-radius-full);
     color: var(--tm-color-text-muted);
+    background: color-mix(in srgb, var(--tm-color-bg) 72%, transparent);
+    backdrop-filter: blur(var(--tm-space-2));
+    -webkit-backdrop-filter: blur(var(--tm-space-2));
   }
   .tm-mes__swipe:hover {
     color: var(--tm-color-text);
     background: var(--tm-color-surface-sunken);
   }
-  .tm-mes__swipe--left {
-    position: absolute;
-    left: calc((var(--tm-touch-target) - var(--tm-avatar-size)) / -2);
-    bottom: 0;
+  .tm-mes__swipe--off {
+    visibility: hidden;
   }
-  .tm-mes__swipe-right-wrap {
+  .tm-mes__swipes {
+    position: sticky;
+    bottom: var(--tm-space-2);
+    z-index: 1;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    align-self: flex-end;
-    margin-top: calc(var(--tm-space-2) * -1);
+    justify-content: space-between;
+    gap: var(--tm-space-3);
+    margin-top: var(--tm-space-2);
+    pointer-events: none;
+  }
+  .tm-mes__swipes > :global(*) {
+    pointer-events: auto;
   }
   .tm-mes__counter {
     font-family: var(--tm-font-ui);

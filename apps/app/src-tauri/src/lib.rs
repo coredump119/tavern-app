@@ -288,6 +288,15 @@ fn media_upload(
         .map_err(|e| format!("{e} ({})", src.display()))
 }
 
+/// ST `/api/backgrounds/upload`: copy a picked image into `backgrounds/`; returns the stored
+/// file name (DEV_NOTES §9.42).
+#[tauri::command]
+fn background_upload(root: String, src_path: String, file_name: String) -> Result<String, String> {
+    let src = picked_path(&src_path);
+    tm_data::media::save_background(Path::new(&root), &src, &file_name)
+        .map_err(|e| format!("{e} ({})", src.display()))
+}
+
 /// ST `/api/images/upload` as an extension calls it: base64 body, caller-chosen name
 /// (DEV_NOTES §9.34 第 4 轮). The error text is ST's.
 #[tauri::command]
@@ -1387,6 +1396,7 @@ pub fn run() {
             user_avatar_upload,
             user_avatar_copy,
             media_upload,
+            background_upload,
             media_upload_base64,
             media_list,
             media_folders,

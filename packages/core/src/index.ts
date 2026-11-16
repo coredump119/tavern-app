@@ -39,5 +39,6 @@ export * from './presets/index.js';
 export * from './presets/textgen.js';
 export * from './prompt/clean-up.js';
 export * from './persona/index.js';
+export * from './background/index.js';
 export * from './chat/bookmarks.js';
 export * from './chat/import.js';

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import {
   ChatMessageSchema,
   looksLikeChatHeader,
+  parseChatHeader,
+  parseChatMessage,
   parseChatJsonl,
   serializeChatJsonl,
   serializeMessage,
@@ -10,6 +12,55 @@ import {
 } from '../src/index.js';
 
 const text = readFileSync(new URL('./fixtures/chat-sample.jsonl', import.meta.url), 'utf8');
+
+describe('chat lines with fields of the wrong type', () => {
+  it('opens a message whose optional fields are null or mistyped', () => {
+    const m = parseChatMessage({
+      name: 'Sera',
+      is_user: false,
+      send_date: 'June 1, 2026 9:00am',
+      mes: 'hi',
+      original_avatar: null,
+      force_avatar: null,
+      title: 5,
+      swipe_id: '0',
+      swipes: ['hi', null, 7],
+      swipe_info: [{ send_date: null }, 'x'],
+      extra: { api: null, token_count: '12', kept: { deep: true } },
+      custom_field: [1, 2],
+    });
+    expect(m).toEqual({
+      name: 'Sera',
+      is_user: false,
+      send_date: 'June 1, 2026 9:00am',
+      mes: 'hi',
+      swipes: ['hi', '', '7'],
+      swipe_info: [{}, null],
+      extra: { kept: { deep: true } },
+      custom_field: [1, 2],
+    });
+  });
+
+  it('coerces the required fields instead of failing', () => {
+    const m = parseChatMessage({ name: null, is_user: 1, send_date: null, mes: 42 });
+    expect(m).toEqual({ name: '', is_user: true, send_date: '', mes: '42' });
+  });
+
+  it('leaves a well-formed message untouched and still rejects a non-object', () => {
+    const raw = { name: 'A', is_user: true, send_date: 1, mes: 'x', original_avatar: 'a.png' };
+    expect(parseChatMessage(raw)).toEqual(raw);
+    expect(() => parseChatMessage('nope')).toThrow();
+  });
+
+  it('opens a header with mistyped metadata', () => {
+    const h = parseChatHeader({
+      user_name: 'U',
+      character_name: null,
+      chat_metadata: { note_interval: '1', variables: null, tainted: true },
+    });
+    expect(h).toEqual({ user_name: 'U', chat_metadata: { tainted: true } });
+  });
+});
 
 describe('chat jsonl', () => {
   it('parses header + messages and round-trips deep-equal', () => {
@@ -54,7 +105,7 @@ describe('chat jsonl', () => {
   });
   it('points at the broken message', () => {
     const bad = text.split('\n');
-    bad[2] = '{"name":"x","is_user":"no","send_date":"d","mes":"m"}';
+    bad[2] = '["not", "a", "message"]';
     expect(() => parseChatJsonl(bad.join('\n'))).toThrow(/message 1 invalid/);
     expect(
       ChatMessageSchema.safeParse({ name: 'a', is_user: true, send_date: 1, mes: 'm' }).success,

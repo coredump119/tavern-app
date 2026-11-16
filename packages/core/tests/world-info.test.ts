@@ -409,6 +409,9 @@ describe('checkWorldInfo', () => {
     // budget = 25% * 40 = 10 chars → 第一条 5 字符 + 换行通过（6 < 10），第二条累计 12 ≥ 10 溢出
     const r = await run(es, ['x'], { maxContext: 40 });
     expect(r.uids).toEqual([1, 3]);
+    // the result says what was left out, whether or not the alert option is on
+    expect(r.budgetOverflow).toEqual({ budget: 10, activated: 1, firstSkipped: 'x' });
+    expect((await run(es, ['x'], { maxContext: 4000 })).budgetOverflow).toBeUndefined();
     const r2 = await run(es, ['x'], { maxContext: 4000, settings: { world_info_budget_cap: 10 } });
     expect(r2.uids).toEqual([1, 3]);
     const alerts: number[] = [];

@@ -30,6 +30,10 @@
   import Icon from '../lib/components/Icon.svelte';
   import { chatStore } from '../lib/chat/store.svelte';
   import { isTauri } from '../lib/ipc';
+  import { pickFiles, readPickedJson } from '../lib/files';
+  import { describeExport, exportText } from '../lib/export';
+  import { askPopup } from '../lib/popup.svelte';
+  import { allowPresetRegexOnce } from '../lib/regex';
   import { mainApiOf } from '../lib/chat/core-state';
   import LogitBiasEditor from '../lib/components/settings/LogitBiasEditor.svelte';
   import TextCompletionPresets from '../lib/components/settings/TextCompletionPresets.svelte';
@@ -157,8 +161,15 @@
       applyChatCompletionPreset(oai, body, name);
       ensureOrder();
       persist();
+      const regex = allowPresetRegexOnce(
+        store.settings ? ($state.snapshot(store.settings) as Record<string, unknown>) : null,
+        'openai',
+        name,
+        oai['extensions'],
+      );
+      if (regex) persistSettings({ extension_settings: regex.extensionSettings });
       await flushSettings();
-      notice = `已应用预设「${name}」`;
+      notice = `已应用预设「${name}」${regex ? `，它自带的 ${regex.count} 条正则已开启（可在「正则脚本」里关）` : ''}`;
     } catch (e) {
       error = msg(e);
     } finally {
@@ -183,6 +194,70 @@
     } finally {
       busy = null;
       saveAsOpen = false;
+    }
+  }
+  /** ST `sensitiveFields` (openai.js): connection details a shared preset file should not carry */
+  const PRESET_SENSITIVE = [
+    'reverse_proxy',
+    'proxy_password',
+    'custom_url',
+    'custom_include_body',
+    'custom_exclude_body',
+    'custom_include_headers',
+    'vertexai_region',
+    'vertexai_express_project_id',
+    'azure_base_url',
+    'azure_deployment_name',
+    'workers_ai_account_id',
+  ];
+  const pickedName = (path: string) => decodeURIComponent(path.split(/[\\/]/).pop() ?? path);
+  /**
+   * ST `#import_oai_preset`: the file name becomes the preset name and the preset is applied.
+   * Unlike ST we never take the file's connection fields (DEV_NOTES §9.41).
+   */
+  async function importPreset() {
+    if (!store.root) return;
+    const [file] = await pickFiles({ extensions: ['json'], title: '预设' });
+    if (!file) return;
+    busy = '导入预设…';
+    error = null;
+    try {
+      const body = await readPickedJson(file);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('不是预设文件');
+      const preset = body as Record<string, unknown>;
+      const name = pickedName(file).replace(/\.[^/.]+$/, '');
+      const dropped = PRESET_SENSITIVE.filter((k) => preset[k]);
+      for (const k of dropped) delete preset[k];
+      if (presets.includes(name)) {
+        const ok = await askPopup({
+          kind: 'confirm',
+          title: '覆盖预设',
+          text: `已经有叫「${name}」的预设，覆盖它？`,
+          okButton: '覆盖',
+        });
+        if (ok !== true) return;
+      }
+      const stored = await writeCcPreset(store.root, name, preset);
+      await refreshPresets();
+      await choosePreset(stored);
+      if (!error && dropped.length) notice = `${notice}。文件里带的代理 / 自定义地址没有导入`;
+    } catch (e) {
+      error = msg(e);
+    } finally {
+      busy = null;
+    }
+  }
+  /** ST `#export_oai_preset`: the stored preset file, without connection fields */
+  async function exportPreset() {
+    if (!store.root || !presets.includes(presetName)) return;
+    error = null;
+    try {
+      const body = await readCcPreset(store.root, presetName);
+      for (const k of PRESET_SENSITIVE) delete body[k];
+      const target = await exportText(`${presetName}.json`, JSON.stringify(body, null, 4));
+      if (target) notice = await describeExport(target);
+    } catch (e) {
+      error = msg(e);
     }
   }
   async function removePreset() {
@@ -317,6 +392,20 @@
             saveAsName = presetName;
             saveAsOpen = true;
           }}>另存为…</Button
+        >
+        <Button
+          id="import_oai_preset"
+          variant="outline"
+          size="sm"
+          disabled={!!busy}
+          onclick={importPreset}>导入</Button
+        >
+        <Button
+          id="export_oai_preset"
+          variant="outline"
+          size="sm"
+          disabled={!!busy || !presets.includes(presetName)}
+          onclick={exportPreset}>导出</Button
         >
         <Button
           variant="ghost"

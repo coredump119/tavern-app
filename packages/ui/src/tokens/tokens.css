@@ -6,8 +6,8 @@
 :root {
   /* ---- typography ---- */
   --tm-font-serif:
-    'Source Serif 4', 'Iowan Old Style', 'Palatino Linotype', 'Songti SC', 'Noto Serif CJK SC',
-    'Noto Serif SC', Georgia, serif;
+    'Source Serif 4', 'Iowan Old Style', 'Palatino Linotype', 'Noto Serif SC', 'Songti SC',
+    'Noto Serif CJK SC', Georgia, serif;
   --tm-font-sans:
     'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Noto Sans CJK SC',
     'Noto Sans SC', 'Helvetica Neue', system-ui, sans-serif;

@@ -4,6 +4,7 @@
    * so it stays in the page and only its sheet is shown or hidden (DEV_NOTES §9.34).
    */
   import { extensionHost as host } from '../ext/host.svelte';
+  import Icon from './Icon.svelte';
 
   let menu = $state<HTMLElement>();
   /** counted when the sheet opens; entries only ever change while it is closed or by a click in it */
@@ -28,8 +29,19 @@
   <div class="tm-extmenu__sheet" role="dialog" aria-modal="true" aria-label="扩展">
     <div class="tm-extmenu__grip" aria-hidden="true"></div>
     <h2 class="tm-extmenu__title">扩展</h2>
+    {#if host.attachFile}
+      <button
+        class="tm-extmenu__builtin"
+        onclick={() => {
+          host.menuOpen = false;
+          host.attachFile?.();
+        }}><Icon name="paperclip" /><span>附加文件</span></button
+      >
+    {/if}
     {#if empty}<p class="tm-extmenu__hint">
-        已加载的扩展没有往这里加东西。装卸和开关在侧栏「扩展」。
+        {host.status === 'running'
+          ? '已加载的扩展没有往这里加东西。'
+          : '扩展加的入口会出现在这里。'}装卸和开关在侧栏「扩展」。
       </p>{/if}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div id="extensionsMenu" class="options-content" bind:this={menu} onclick={onPick}></div>
@@ -37,6 +49,19 @@
 </div>
 
 <style>
+  .tm-extmenu__builtin {
+    display: grid;
+    grid-template-columns: var(--tm-icon-md) minmax(0, 1fr);
+    column-gap: var(--tm-space-4);
+    align-items: center;
+    text-align: left;
+    width: 100%;
+    min-height: var(--tm-touch-target);
+    padding: var(--tm-space-2) var(--tm-space-3);
+    border-radius: var(--tm-radius-md);
+    color: var(--tm-color-text);
+    font-size: var(--tm-text-md);
+  }
   .tm-extmenu {
     position: fixed;
     inset: 0;

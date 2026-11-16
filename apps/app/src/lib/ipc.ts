@@ -183,6 +183,15 @@ export async function mediaUpload(
   return invoke<string>('media_upload', { root, chName, srcPath, fileName });
 }
 
+/** ST `/api/backgrounds/upload`: copy a picked image into `backgrounds/`; returns the stored file name. */
+export async function backgroundUpload(
+  root: string,
+  srcPath: string,
+  fileName: string,
+): Promise<string> {
+  return invoke<string>('background_upload', { root, srcPath, fileName });
+}
+
 /** ST `/api/images/upload` as an extension calls it: base64 body, caller-chosen name; returns the stored rel path. */
 export async function mediaUploadBase64(
   root: string,

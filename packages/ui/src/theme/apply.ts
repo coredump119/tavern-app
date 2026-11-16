@@ -1,5 +1,10 @@
 import { COLOR_KEYS, type ColorKey, type Theme } from './schema.js';
-import { pinColorScheme, sanitizeCustomCss } from './st-css.js';
+import {
+  customCssFonts,
+  pinColorScheme,
+  sanitizeCustomCss,
+  type CustomCssFonts,
+} from './st-css.js';
 import { DARK_COLORS, LIGHT_COLORS } from './defaults.js';
 
 export type ResolvedColors = Record<ColorKey, string>;
@@ -35,6 +40,16 @@ const AVATAR: Record<Theme['shape']['avatar'], { radius: string; height: string 
   rounded: { radius: 'var(--tm-radius-md)', height: 'var(--tm-avatar-size)' },
 };
 
+/** last `customCssFonts` result (same reason as `cssMemo` below) */
+let fontMemo: { source: string; fonts: CustomCssFonts } | undefined;
+
+function fontsOfCustomCss(theme: Theme): CustomCssFonts {
+  if (!theme.customCss || !theme.customCssEnabled) return {};
+  if (fontMemo?.source !== theme.customCss)
+    fontMemo = { source: theme.customCss, fonts: customCssFonts(theme.customCss) };
+  return fontMemo.fonts;
+}
+
 /** Theme → flat map of CSS custom properties. Pure; safe for tests and SSR. */
 export function themeToCssVars(theme: Theme): Record<string, string> {
   const vars: Record<string, string> = {};
@@ -45,8 +60,13 @@ export function themeToCssVars(theme: Theme): Record<string, string> {
   if (t.serif) vars['--tm-font-serif'] = t.serif;
   if (t.sans) vars['--tm-font-sans'] = t.sans;
   if (t.mono) vars['--tm-font-mono'] = t.mono;
-  vars['--tm-font-body'] = `var(--tm-font-${t.body})`;
-  vars['--tm-font-ui'] = `var(--tm-font-${t.ui})`;
+  // a page-wide font set by the custom CSS goes in front of the theme's own choice
+  const cssFonts = fontsOfCustomCss(theme);
+  const lead = cssFonts.main ? `${cssFonts.main}, ` : '';
+  vars['--tm-font-body'] = `${lead}var(--tm-font-${t.body})`;
+  vars['--tm-font-ui'] = `${lead}var(--tm-font-${t.ui})`;
+  if (cssFonts.mono && !t.mono)
+    vars['--tm-font-mono'] = `${cssFonts.mono}, ui-monospace, monospace`;
   vars['--tm-font-scale'] = String(t.scale);
   vars['--tm-leading-body'] = LEADING[t.leading];
 

@@ -576,6 +576,29 @@ async function loadWorldInfo(
   };
 }
 
+/**
+ * Entries left out because the world-info budget ran out are the usual reason a reply "ignores the
+ * world book" (the default context is 4095 tokens, a quarter of it for world info). ST only logs
+ * this; here it becomes a warning the chat page shows (DEV_NOTES §9.44).
+ */
+function noteBudgetOverflow(
+  warnings: string[],
+  worldInfo: {
+    budgetOverflow?: { budget: number; activated: number; firstSkipped: string } | undefined;
+  },
+  wiSettings: WorldInfoSettings,
+  maxContext: number,
+): void {
+  const over = worldInfo.budgetOverflow;
+  if (!over) return;
+  const from = over.firstSkipped ? `从「${over.firstSkipped}」起` : '后面';
+  warnings.push(
+    `世界书太长，只发出了 ${over.activated} 条，${from}的条目没有发给 AI。` +
+      `世界书最多占上下文长度（${maxContext}）的 ${wiSettings.world_info_budget}%，也就是 ${over.budget} 个 token。` +
+      `到「预设 / 采样」把上下文长度调大，或到「世界书」的设置里把占比调高。`,
+  );
+}
+
 /** Persona / example / bias settings both pipelines read from power_user. */
 function powerUserDeps(pu: Record<string, unknown>) {
   return {
@@ -810,6 +833,7 @@ async function prepareChatCompletion(input: PipelineInput): Promise<PreparedGene
   });
   if (result.error) throw result.error;
   const budget = tokenBudgetOf(settings);
+  noteBudgetOverflow(warnings, result.worldInfo, wiSettings, budget.maxContext);
   const messages = input.raw
     ? await assembleRawPrompt(
         ctx,
@@ -922,6 +946,7 @@ async function prepareTextCompletion(input: PipelineInput): Promise<PreparedGene
   });
   let prompt = result.prompt;
   let stoppingStrings = result.stoppingStrings;
+  noteBudgetOverflow(warnings, result.worldInfo, wiSettings, maxContext);
   if (input.raw) {
     const parts = rawParts(ctx, deps, result, input.raw);
     if (parts.userImages.length > 0) throw new Error('Text Completion 不支持图片输入');

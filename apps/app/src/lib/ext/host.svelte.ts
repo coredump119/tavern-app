@@ -159,6 +159,8 @@ class ExtensionHost {
   error = $state<string | null>(null);
   /** the wand menu (`#extensionsMenu`) is showing */
   menuOpen = $state(false);
+  /** the chat page's "attach a file" action, the wand menu's built-in row (ST has it there too) */
+  attachFile = $state<(() => void) | null>(null);
 
   /** folder names the running host loaded, in load order */
   private loaded = $state.raw<readonly string[]>([]);

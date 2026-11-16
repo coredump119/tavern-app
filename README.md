@@ -31,3 +31,5 @@ pnpm test && pnpm typecheck && pnpm lint
 ## 许可
 
 AGPL-3.0-only。本项目移植了 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 的部分逻辑，沿用其许可。
+
+应用自带的中文衬线字体是 Noto Serif SC，按 SIL Open Font License 1.1 分发，许可全文在 `apps/app/public/licenses/`。

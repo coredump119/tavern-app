@@ -52,19 +52,19 @@
 
 ### 2.2 字体 `--tm-font-*`
 
-| 令牌                                | 说明                                                                                                 |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `--tm-font-serif`                   | 衬线栈。默认 `"Source Serif 4", "Iowan Old Style", "Songti SC", "Noto Serif CJK SC", Georgia, serif` |
-| `--tm-font-sans`                    | 无衬线栈。默认 `"Inter", -apple-system, "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif`    |
-| `--tm-font-mono`                    | 等宽栈                                                                                               |
-| `--tm-font-body`                    | 正文实际使用 = serif 或 sans（由 `typography.body` 决定）                                            |
-| `--tm-font-ui`                      | UI 文字实际使用（由 `typography.ui` 决定）                                                           |
-| `--tm-font-scale`                   | 用户缩放系数，默认 1                                                                                 |
-| `--tm-os-font-scale`                | 系统字号系数（iOS 动态字号），默认 1，由应用写入，主题不动                                           |
-| `--tm-text-xs/sm/md/lg/xl/2xl/3xl`  | 字号阶，`md` = 16px × scale × 系统系数，比率 1.2                                                     |
-| `--tm-leading-tight/normal/relaxed` | 1.3 / 1.55 / 1.75                                                                                    |
-| `--tm-text-input-min`               | 16px：触屏设备上所有文本输入框的字号下限（`reset.css` 用 `max()` 夹住），否则 iOS 聚焦时会整页放大   |
-| `--tm-tracking-tight/normal/wide`   | -0.01em / 0 / 0.04em（小标签全大写时用 wide）                                                        |
+| 令牌                                | 说明                                                                                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--tm-font-serif`                   | 衬线栈。默认 `"Source Serif 4", "Iowan Old Style", "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", Georgia, serif`；`Noto Serif SC` 随应用自带 |
+| `--tm-font-sans`                    | 无衬线栈。默认 `"Inter", -apple-system, "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif`                                                 |
+| `--tm-font-mono`                    | 等宽栈                                                                                                                                            |
+| `--tm-font-body`                    | 正文实际使用 = serif 或 sans（由 `typography.body` 决定）                                                                                         |
+| `--tm-font-ui`                      | UI 文字实际使用（由 `typography.ui` 决定）                                                                                                        |
+| `--tm-font-scale`                   | 用户缩放系数，默认 1                                                                                                                              |
+| `--tm-os-font-scale`                | 系统字号系数（iOS 动态字号），默认 1，由应用写入，主题不动                                                                                        |
+| `--tm-text-xs/sm/md/lg/xl/2xl/3xl`  | 字号阶，`md` = 16px × scale × 系统系数，比率 1.2                                                                                                  |
+| `--tm-leading-tight/normal/relaxed` | 1.3 / 1.55 / 1.75                                                                                                                                 |
+| `--tm-text-input-min`               | 16px：触屏设备上所有文本输入框的字号下限（`reset.css` 用 `max()` 夹住），否则 iOS 聚焦时会整页放大                                                |
+| `--tm-tracking-tight/normal/wide`   | -0.01em / 0 / 0.04em（小标签全大写时用 wide）                                                                                                     |
 
 Phase 0 不捆绑字体文件（安装包预算），走系统字体；`typography.serif/sans/mono` 可覆盖字体栈，后续允许用户导入字体文件。
 

@@ -168,6 +168,11 @@ export interface WIActivated {
   ANAfterEntries: string[];
   outletEntries: Record<string, string[]>;
   allActivatedEntries: Set<WIEntry>;
+  /**
+   * Set when the token budget ran out and entries were left out. Not in ST's result (ST only logs
+   * it, or toasts with `world_info_overflow_alert`); the app tells the user every time.
+   */
+  budgetOverflow?: { budget: number; activated: number; firstSkipped: string } | undefined;
 }
 
 export interface WIPromptResult {

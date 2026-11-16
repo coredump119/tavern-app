@@ -92,13 +92,68 @@ export function looksLikeChatHeader(raw: unknown): boolean {
   );
 }
 
+/** the fields a message cannot do without: coerced instead of dropped when they have the wrong type */
+const REQUIRED_MESSAGE_FIELDS: Record<string, (v: unknown) => unknown> = {
+  name: (v) => (v == null ? '' : String(v)),
+  mes: (v) => (v == null ? '' : String(v)),
+  is_user: (v) => Boolean(v),
+  send_date: (v) => (typeof v === 'string' || typeof v === 'number' ? v : ''),
+};
+
+/** Make the value at `path` acceptable: coerce a required field, blank an array slot, drop the rest. */
+function repairAt(
+  root: Record<string, unknown>,
+  path: readonly PropertyKey[],
+  required: Record<string, (v: unknown) => unknown>,
+): void {
+  if (path.length === 0) return;
+  let parent: unknown = root;
+  for (const key of path.slice(0, -1)) {
+    if (!parent || typeof parent !== 'object') return;
+    parent = (parent as Record<PropertyKey, unknown>)[key];
+  }
+  if (!parent || typeof parent !== 'object') return;
+  const last = path[path.length - 1]!;
+  const box = parent as Record<PropertyKey, unknown>;
+  const fix = path.length === 1 && typeof last === 'string' ? required[last] : undefined;
+  if (fix) box[last] = fix(box[last]);
+  else if (Array.isArray(parent))
+    box[last] = path[0] === 'swipes' ? (box[last] == null ? '' : String(box[last])) : null;
+  else delete box[last];
+}
+
+/**
+ * ST loads a chat without checking it, so real files carry fields of the wrong type (mostly a
+ * `null` where a string belongs). One such field must not make the whole chat unopenable: when a
+ * line fails the schema, the fields the schema complains about are repaired — required ones
+ * coerced, the others dropped — and the line is checked again (DEV_NOTES §9.41).
+ */
+function parseTolerant<T>(
+  schema: z.ZodType<T>,
+  raw: unknown,
+  required: Record<string, (v: unknown) => unknown>,
+): T {
+  const first = schema.safeParse(raw);
+  if (first.success) return first.data;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw first.error;
+  const fixed = structuredClone(raw) as Record<string, unknown>;
+  let issues = first.error.issues;
+  for (let pass = 0; pass < 4; pass++) {
+    for (const issue of issues) repairAt(fixed, issue.path, required);
+    const again = schema.safeParse(fixed);
+    if (again.success) return again.data;
+    issues = again.error.issues;
+  }
+  return schema.parse(fixed);
+}
+
 export function parseChatHeader(raw: unknown): ChatHeader {
   if (!looksLikeChatHeader(raw)) throw new Error('chat: first line is not a chat header');
-  return ChatHeaderSchema.parse(raw);
+  return parseTolerant(ChatHeaderSchema, raw, {});
 }
 
 export function parseChatMessage(raw: unknown): ChatMessage {
-  return ChatMessageSchema.parse(raw);
+  return parseTolerant(ChatMessageSchema, raw, REQUIRED_MESSAGE_FIELDS);
 }
 
 /** Non-blank lines only; CRLF tolerated. */

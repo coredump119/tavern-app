@@ -17,6 +17,7 @@
   import Button from '@tm/ui/components/Button.svelte';
   import BottomSheet from '../lib/components/BottomSheet.svelte';
   import Icon from '../lib/components/Icon.svelte';
+  import FullEditor from '../lib/components/FullEditor.svelte';
   import TagEditor from '../lib/components/TagEditor.svelte';
   import { chatStore } from '../lib/chat/store.svelte';
   import { fileUrl } from '../lib/ipc';
@@ -57,6 +58,8 @@
   let avatarVersion = $state(0);
   let moreOpen = $state(false);
   let deleteOpen = $state(false);
+  /** the field open in the full-screen editor (DEV_NOTES §9.41) */
+  let full = $state<{ title: string; get: () => string; set: (v: string) => void } | null>(null);
   let embedOpen = $state(false);
   let personaOpen = $state(false);
   let personaSwap = $state(true);
@@ -351,6 +354,19 @@
   }
 </script>
 
+{#snippet expand(title: string, get: () => string, set: (v: string) => void)}
+  <button
+    type="button"
+    class="tm-ce__expand editor_maximize"
+    aria-label="全屏编辑{title}"
+    title="全屏编辑"
+    onclick={(e) => {
+      e.preventDefault();
+      full = { title, get, set };
+    }}><Icon name="expand" size="sm" /></button
+  >
+{/snippet}
+
 <section class="tm-ce drawer-content" id="rm_ch_create_block">
   <div class="tm-ce__bar">
     <button class="tm-ce__link" onclick={onClose}><Icon name="chevron-left" />角色列表</button>
@@ -415,7 +431,13 @@
     </div>
 
     <label class="tm-ce__field">
-      <span class="tm-ce__label">描述</span>
+      <span class="tm-ce__label"
+        >描述{@render expand(
+          '描述',
+          () => form.description ?? '',
+          (v) => (form.description = v),
+        )}</span
+      >
       <textarea
         id="description_textarea"
         class="tm-ce__textarea"
@@ -425,7 +447,13 @@
     </label>
 
     <label class="tm-ce__field">
-      <span class="tm-ce__label">开场白</span>
+      <span class="tm-ce__label"
+        >开场白{@render expand(
+          '开场白',
+          () => form.first_mes ?? '',
+          (v) => (form.first_mes = v),
+        )}</span
+      >
       <textarea
         id="firstmessage_textarea"
         class="tm-ce__textarea"
@@ -445,9 +473,18 @@
             value={g}
             oninput={(e) => setGreeting(i, e.currentTarget.value)}
             use:autogrow={g}></textarea>
-          <button class="tm-ce__icon" aria-label="删除备选开场白" onclick={() => removeGreeting(i)}
-            ><Icon name="trash" /></button
-          >
+          <div class="tm-ce__greeting-side">
+            <button
+              class="tm-ce__icon"
+              aria-label="删除备选开场白"
+              onclick={() => removeGreeting(i)}><Icon name="trash" /></button
+            >
+            {@render expand(
+              `备选开场白 ${i + 1}`,
+              () => greetings[i] ?? '',
+              (v) => setGreeting(i, v),
+            )}
+          </div>
         </div>
       {/each}
       <button class="tm-ce__chip" onclick={addGreeting}
@@ -461,7 +498,13 @@
     {#if advanced}
       <div id="character_popup" class="tm-ce__advanced">
         <label class="tm-ce__field">
-          <span class="tm-ce__label">主提示词覆盖 <small>system_prompt</small></span>
+          <span class="tm-ce__label"
+            >主提示词覆盖 <small>system_prompt</small>{@render expand(
+              '主提示词覆盖',
+              () => form.system_prompt ?? '',
+              (v) => (form.system_prompt = v),
+            )}</span
+          >
           <textarea
             id="system_prompt_textarea"
             class="tm-ce__textarea"
@@ -470,7 +513,13 @@
             use:autogrow={form.system_prompt}></textarea>
         </label>
         <label class="tm-ce__field">
-          <span class="tm-ce__label">历史后指令覆盖 <small>post_history_instructions</small></span>
+          <span class="tm-ce__label"
+            >历史后指令覆盖 <small>post_history_instructions</small>{@render expand(
+              '历史后指令覆盖',
+              () => form.post_history_instructions ?? '',
+              (v) => (form.post_history_instructions = v),
+            )}</span
+          >
           <textarea
             id="post_history_instructions_textarea"
             class="tm-ce__textarea"
@@ -479,7 +528,13 @@
             use:autogrow={form.post_history_instructions}></textarea>
         </label>
         <label class="tm-ce__field">
-          <span class="tm-ce__label">创作者备注</span>
+          <span class="tm-ce__label"
+            >创作者备注{@render expand(
+              '创作者备注',
+              () => form.creator_notes ?? '',
+              (v) => (form.creator_notes = v),
+            )}</span
+          >
           <textarea
             id="creator_notes_textarea"
             class="tm-ce__textarea"
@@ -518,7 +573,13 @@
           />
         </label>
         <label class="tm-ce__field">
-          <span class="tm-ce__label">性格</span>
+          <span class="tm-ce__label"
+            >性格{@render expand(
+              '性格',
+              () => form.personality ?? '',
+              (v) => (form.personality = v),
+            )}</span
+          >
           <textarea
             id="personality_textarea"
             class="tm-ce__textarea"
@@ -527,7 +588,13 @@
             use:autogrow={form.personality}></textarea>
         </label>
         <label class="tm-ce__field">
-          <span class="tm-ce__label">场景</span>
+          <span class="tm-ce__label"
+            >场景{@render expand(
+              '场景',
+              () => form.scenario ?? '',
+              (v) => (form.scenario = v),
+            )}</span
+          >
           <textarea
             id="scenario_pole"
             class="tm-ce__textarea"
@@ -536,7 +603,13 @@
             use:autogrow={form.scenario}></textarea>
         </label>
         <label class="tm-ce__field">
-          <span class="tm-ce__label">对话示例</span>
+          <span class="tm-ce__label"
+            >对话示例{@render expand(
+              '对话示例',
+              () => form.mes_example ?? '',
+              (v) => (form.mes_example = v),
+            )}</span
+          >
           <textarea
             id="mes_example_textarea"
             class="tm-ce__textarea"
@@ -601,7 +674,13 @@
           />
         </label>
         <div class="tm-ce__field">
-          <span class="tm-ce__label">角色备注 <small>深度注入</small></span>
+          <span class="tm-ce__label"
+            >角色备注 <small>深度注入</small>{@render expand(
+              '角色备注',
+              () => form.depth_prompt_prompt ?? '',
+              (v) => (form.depth_prompt_prompt = v),
+            )}</span
+          >
           <textarea
             aria-label="角色备注"
             id="depth_prompt_prompt"
@@ -646,6 +725,14 @@
     <p class="tm-ce__meta">没有读到角色。</p>
   {/if}
 </section>
+
+<FullEditor
+  open={!!full}
+  title={full?.title ?? ''}
+  value={full?.get() ?? ''}
+  onInput={(v) => full?.set(v)}
+  onClose={() => (full = null)}
+/>
 
 <BottomSheet open={moreOpen} title={form.ch_name || avatar} onClose={() => (moreOpen = false)}>
   {#if onOpenChat}
@@ -910,9 +997,33 @@
   .tm-ce__input {
     font-family: var(--tm-font-ui);
   }
+  /* grows with the text up to 15 lines, then scrolls inside; the label's button opens it full screen */
   .tm-ce__textarea {
     resize: none;
-    overflow: hidden;
+    overflow-y: auto;
+    max-height: calc(1em * var(--tm-leading-normal) * 15 + var(--tm-space-3) * 2);
+  }
+  .tm-ce__expand {
+    flex: none;
+    margin-left: auto;
+    width: var(--tm-touch-target);
+    height: calc(var(--tm-touch-target) * 0.6);
+    display: inline-grid;
+    place-items: center;
+    align-self: center;
+    border-radius: var(--tm-radius-md);
+    color: var(--tm-color-text-muted);
+  }
+  .tm-ce__greeting-side {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--tm-space-1);
+  }
+  .tm-ce__greeting-side .tm-ce__expand {
+    margin-left: 0;
+    height: var(--tm-touch-target);
   }
   .tm-ce__input:focus-visible,
   .tm-ce__textarea:focus-visible {

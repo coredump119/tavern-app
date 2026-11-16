@@ -106,9 +106,10 @@ export function buildCoreState(input: CoreStateInput): CoreState {
     model,
     powerUser: {
       ...(pu as object),
-      instruct: pu['instruct'] as CoreState['powerUser']['instruct'],
-      sysprompt: pu['sysprompt'] as CoreState['powerUser']['sysprompt'],
-      context: pu['context'] as CoreState['powerUser']['context'],
+      // a settings.json that never went through ST may lack these objects; the pipelines read into them
+      instruct: (pu['instruct'] ?? {}) as CoreState['powerUser']['instruct'],
+      sysprompt: (pu['sysprompt'] ?? {}) as CoreState['powerUser']['sysprompt'],
+      context: (pu['context'] ?? {}) as CoreState['powerUser']['context'],
       prefer_character_prompt: !!pu['prefer_character_prompt'],
       prefer_character_jailbreak: !!pu['prefer_character_jailbreak'],
       collapse_newlines: !!pu['collapse_newlines'],

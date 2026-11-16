@@ -12,6 +12,8 @@
     groupMessageFields,
     NOTE_METADATA_KEYS,
     timestampToMoment,
+    activeBackgroundRel,
+    backgroundSettingsOf,
     type CharacterLike,
     type ChatMessageLike,
     type GroupGenerationType,
@@ -37,6 +39,8 @@
   import { emitAppEvent } from '../lib/events';
   import { event_types } from '@tm/st-compat';
   import { pickFiles } from '../lib/files';
+  import { offerCardExtras } from '../lib/card-extras.svelte';
+  import { toasts } from '../lib/toast.svelte';
   import { listWorldNames } from '../lib/worlds';
   import { MessageRenderer, formatPowerUserFrom } from '../lib/chat/render';
   import {
@@ -106,15 +110,60 @@
   import { themeStore } from '../lib/theme.svelte';
 
   interface Props {
+    /**
+     * False while another page is open. The page is then hidden, not unmounted, so a reply that is
+     * being generated keeps streaming and is there on return (DEV_NOTES §9.45).
+     */
+    active?: boolean;
     onTitle?: ((title: string, subtitle?: string) => void) | undefined;
     onOpenCharacters?: (() => void) | undefined;
     onEditCharacter?: ((avatar: string) => void) | undefined;
     onEditGroup?: ((id: string) => void) | undefined;
   }
-  let { onTitle, onOpenCharacters, onEditCharacter, onEditGroup }: Props = $props();
+  let { active = true, onTitle, onOpenCharacters, onEditCharacter, onEditGroup }: Props = $props();
+
+  // the reply being generated belongs to the chat it started in: opening another one stops it
+  let liveChat: string | null = null;
+  $effect(() => {
+    const path = store.chatPath;
+    const running = busy;
+    untrack(() => {
+      if (running && liveChat !== null && path !== liveChat) abortGeneration();
+      liveChat = running ? path : null;
+    });
+  });
+
+  // a hidden list has no size and loses its scroll offset: note where it was, put it back on return
+  let scrollMemo: { top: number; atEnd: boolean } | null = null;
+  $effect.pre(() => {
+    if (active) return;
+    const list = document.getElementById('chat');
+    if (!list || list.clientHeight === 0) return;
+    const fromEnd = list.scrollHeight - list.clientHeight - list.scrollTop;
+    scrollMemo = { top: list.scrollTop, atEnd: fromEnd < list.clientHeight / 4 };
+  });
+  $effect(() => {
+    if (!active || !scrollMemo) return;
+    const memo = scrollMemo;
+    scrollMemo = null;
+    // two frames: the list measures itself again in the first
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const list = document.getElementById('chat');
+        if (list) list.scrollTop = memo.atEnd ? list.scrollHeight : memo.top;
+      }),
+    );
+  });
 
   const store = chatStore;
   onMount(() => void store.init());
+  // the wand menu's "attach a file" row acts on this page (DEV_NOTES §9.44)
+  $effect(() => {
+    extensionHost.attachFile = isTauri() ? () => void attach() : null;
+    return () => {
+      extensionHost.attachFile = null;
+    };
+  });
   // slash commands run by scripts drive generation and the input box through the page (DEV_NOTES §9.5)
   onMount(() =>
     registerChatPage({
@@ -413,7 +462,37 @@
       ...(store.group ? { original_avatar: speaker.avatar } : {}),
     };
   });
-  const rows = $derived(pendingRow ? [...store.messages, pendingRow] : store.messages);
+  /**
+   * A swipe or a regenerate rewrites the last reply, so the new text streams in that reply's
+   * place, as in ST (DEV_NOTES §9.44). The stored message only changes when the reply is in, so a
+   * failed or stopped run brings the old one back. A group regenerate has already removed the
+   * batch it replaces.
+   */
+  const replacesLast = $derived.by(() => {
+    if (!live || !pendingRow) return false;
+    if (live.type !== 'swipe' && !(live.type === 'regenerate' && !store.group)) return false;
+    const last = store.messages.at(-1);
+    return !!last && !last.is_user;
+  });
+  const rows = $derived(
+    pendingRow
+      ? [...(replacesLast ? store.messages.slice(0, -1) : store.messages), pendingRow]
+      : store.messages,
+  );
+
+  // ST asks about a card's own world book / regex scripts the first time its chat opens; cards
+  // imported here were already asked at import (DEV_NOTES §9.41)
+  let extrasOffered: string | null = null;
+  $effect(() => {
+    const avatar = store.open && !store.group ? (store.character?.avatar ?? null) : null;
+    if (!avatar || avatar === extrasOffered) return;
+    extrasOffered = avatar;
+    void offerCardExtras(avatar)
+      .then((done) => {
+        if (done.length) toasts.show('success', done.join('，'));
+      })
+      .catch(() => undefined);
+  });
 
   // avatar as background (theme `background.avatar`): the large copy from `backgrounds/`, else the card PNG
   const bgAvatar = $derived(store.character?.avatar ?? store.members[0]?.avatar ?? null);
@@ -429,6 +508,11 @@
       ? `${fileUrl(`${store.root}/characters/${bgAvatar}`)}?v=${v}`
       : `${fileUrl(`${store.root}/${avatarBackgroundRel(bgAvatar)}`)}?v=${v}`;
   });
+  // a picked background image (chat-locked, else global) goes before the avatar one (DEV_NOTES §9.42)
+  const bgImageRel = $derived(
+    activeBackgroundRel(settingsPlain, store.open ? store.chatMetadata : null),
+  );
+  const bgFitting = $derived(backgroundSettingsOf(settingsPlain).fitting);
   const rowKey = (m: ChatMessage, i: number) =>
     m === pendingRow ? 'pending' : `${i}:${m.send_date}`;
   /** rows with a front-end card stay mounted for a while after scrolling away (DEV_NOTES §9.5 保活) */
@@ -720,6 +804,8 @@
   ): Promise<void> {
     if (!store.root || !store.settings) return;
     liveMember = memberIndex;
+    // the chat this reply belongs to; a different one may be open by the time it is in (§9.45)
+    const origin = store.chatPath;
     live = { type, text: '', reasoning: '', handle: null, startedAt: messageTimeStamp() };
     announceStart(type);
     startAnnounced = false;
@@ -757,6 +843,7 @@
         canUseTools: generationHooks.tools?.supported() ?? false,
         onPrompt: announcePrompt,
       });
+      showPipelineWarnings(prep.warnings);
       await applyMacroLikes(prep.request);
       liveStops = prep.stoppingStrings;
       const handle = runGeneration(prep.request, prep.secret, { onDelta: scheduleLive });
@@ -769,6 +856,8 @@
         frame = 0;
       }
       lastOutcome = outcome;
+      // another character or chat was opened meanwhile: the reply must not land in that one
+      if (store.chatPath !== origin) return;
       const calls = outcome.state === 'done' && tools.length ? outcome.toolCalls : [];
       if (!calls.length || !isBareToolReply(type, outcome.text.trim(), outcome.reasoning))
         await finalize(
@@ -796,6 +885,21 @@
     if (depth === 0 && toolNotice) {
       if (notice === toolNotice) notice = null;
       toolNotice = null;
+    }
+  }
+
+  /**
+   * What the prompt had to leave out (an unreadable world book, world-info entries over budget):
+   * said once per chat, not on every message (DEV_NOTES §9.44).
+   */
+  let warned = { chat: '', texts: new Set<string>() };
+  function showPipelineWarnings(warnings: readonly string[]) {
+    const chat = `${store.character?.avatar ?? store.group?.id ?? ''}/${store.chatFile ?? ''}`;
+    if (warned.chat !== chat) warned = { chat, texts: new Set() };
+    for (const text of warnings) {
+      if (warned.texts.has(text)) continue;
+      warned.texts.add(text);
+      toasts.show('warning', text, '', 0);
     }
   }
 
@@ -1284,639 +1388,676 @@
   }
 </script>
 
-{#if !isTauri()}
-  <section class="tm-chat__empty">
-    <p>聊天页需要在 app 里运行（读取本地角色与对话）。</p>
-  </section>
-{:else if store.error}
-  <section class="tm-chat__empty">
-    <p class="tm-chat__error">{store.error}</p>
-    <button class="tm-chat__link" onclick={() => (store.error = null)}>关闭</button>
-  </section>
-{:else if !store.open}
-  <section class="tm-chat__picker welcomePanel">
-    <h2 class="tm-chat__picker-title">选择角色</h2>
-    {#if onOpenCharacters}
-      <p class="tm-chat__hint">
-        <button class="tm-chat__link" onclick={onOpenCharacters}>去角色列表导入 / 管理 →</button>
-      </p>
-    {/if}
-    {#if store.loading}
-      <p class="tm-chat__hint">读取中…</p>
-    {:else if store.characters.length === 0 && store.groups.length === 0}
-      <p class="tm-chat__hint">
-        还没有角色。把 ST 的 <code>characters/</code> 卡片放进数据目录，或导入 ST 备份 zip。
-      </p>
-      <p class="tm-chat__hint tm-chat__path">{store.root}</p>
-      <button class="tm-chat__link" onclick={() => store.refreshCharacters()}>重新扫描</button>
-    {:else}
-      <ul class="tm-chat__cards">
-        {#each store.groups as g (g.id)}
-          <li>
-            <button class="tm-chat__card" onclick={() => store.openGroup(g.id)}>
-              <span class="tm-chat__card-avatar tm-chat__card-collage">
-                <GroupCollage
-                  avatars={groupCollageAvatars(g, store.characters)}
-                  custom={g.avatar_url}
-                  root={store.root ?? ''}
+<div class="tm-chat-page" class:tm-chat-page--hidden={!active}>
+  {#if !isTauri()}
+    <section class="tm-chat__empty">
+      <p>聊天页需要在 app 里运行（读取本地角色与对话）。</p>
+    </section>
+  {:else if store.error}
+    <section class="tm-chat__empty">
+      <p class="tm-chat__error">{store.error}</p>
+      <button class="tm-chat__link" onclick={() => (store.error = null)}>关闭</button>
+    </section>
+  {:else if !store.open}
+    <section class="tm-chat__picker welcomePanel">
+      <h2 class="tm-chat__picker-title">选择角色</h2>
+      {#if onOpenCharacters}
+        <p class="tm-chat__hint">
+          <button class="tm-chat__link" onclick={onOpenCharacters}>去角色列表导入 / 管理 →</button>
+        </p>
+      {/if}
+      {#if store.loading}
+        <p class="tm-chat__hint">读取中…</p>
+      {:else if store.characters.length === 0 && store.groups.length === 0}
+        <p class="tm-chat__hint">
+          还没有角色。把 ST 的 <code>characters/</code> 卡片放进数据目录，或导入 ST 备份 zip。
+        </p>
+        <p class="tm-chat__hint tm-chat__path">{store.root}</p>
+        <button class="tm-chat__link" onclick={() => store.refreshCharacters()}>重新扫描</button>
+      {:else}
+        <ul class="tm-chat__cards">
+          {#each store.groups as g (g.id)}
+            <li>
+              <button class="tm-chat__card" onclick={() => store.openGroup(g.id)}>
+                <span class="tm-chat__card-avatar tm-chat__card-collage">
+                  <GroupCollage
+                    avatars={groupCollageAvatars(g, store.characters)}
+                    custom={g.avatar_url}
+                    root={store.root ?? ''}
+                  />
+                </span>
+                <span class="tm-chat__card-name">{g.name}</span>
+                <span class="tm-chat__card-sub">群聊 · {g.members.length} 人</span>
+                {#if g.fav === true || g.fav === 'true'}<span
+                    class="tm-chat__card-fav"
+                    aria-label="收藏">★</span
+                  >{/if}
+              </button>
+            </li>
+          {/each}
+          {#each store.characters as c (c.avatar)}
+            <li>
+              <button class="tm-chat__card" onclick={() => store.openCharacter(c.avatar)}>
+                <img
+                  class="tm-chat__card-avatar"
+                  src={fileUrl(`${store.root}/characters/${c.avatar}`)}
+                  alt=""
                 />
-              </span>
-              <span class="tm-chat__card-name">{g.name}</span>
-              <span class="tm-chat__card-sub">群聊 · {g.members.length} 人</span>
-              {#if g.fav === true || g.fav === 'true'}<span
-                  class="tm-chat__card-fav"
-                  aria-label="收藏">★</span
-                >{/if}
-            </button>
-          </li>
-        {/each}
-        {#each store.characters as c (c.avatar)}
-          <li>
-            <button class="tm-chat__card" onclick={() => store.openCharacter(c.avatar)}>
-              <img
-                class="tm-chat__card-avatar"
-                src={fileUrl(`${store.root}/characters/${c.avatar}`)}
-                alt=""
-              />
-              <span class="tm-chat__card-name">{c.name}</span>
-              {#if c.fav}<span class="tm-chat__card-fav" aria-label="收藏">★</span>{/if}
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </section>
-{:else}
-  <div id="sheld" class="tm-chat" {@attach helperDisplay.listen}>
-    {#if bgUrl}
-      <div class="tm-chat__bg" aria-hidden="true">
-        <img class="tm-chat__bg-img" src={bgUrl} alt="" onerror={() => (bgLargeFailed = true)} />
+                <span class="tm-chat__card-name">{c.name}</span>
+                {#if c.fav}<span class="tm-chat__card-fav" aria-label="收藏">★</span>{/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {:else}
+    <div id="sheld" class="tm-chat" {@attach helperDisplay.listen}>
+      <!-- ST #bg1: always there, so theme CSS can paint it too -->
+      <div
+        id="bg1"
+        class="tm-chat__bg {bgImageRel && bgFitting !== 'classic' ? bgFitting : ''}"
+        class:tm-chat__bg--image={!!bgImageRel}
+        style:background-image={bgImageRel && store.root
+          ? `url("${fileUrl(`${store.root}/${bgImageRel}`)}")`
+          : null}
+        aria-hidden="true"
+      >
+        {#if bgUrl && !bgImageRel}
+          <img class="tm-chat__bg-img" src={bgUrl} alt="" onerror={() => (bgLargeFailed = true)} />
+        {/if}
       </div>
-    {/if}
-    <p class="tm-sr-only" aria-live="polite">{spoken}</p>
-    <VirtualList
-      id="chat"
-      class="tm-chat__scroll"
-      items={rows}
-      key={rowKey}
-      estimate={140}
-      followBottom={true}
-      keepAlive={hasLiveCard}
-      {onWindow}
-    >
-      {#snippet header()}
-        <div class="tm-chat__top">
-          <p class="tm-chat__divider">
-            <span>{store.total} 条 · {store.chatFile?.replace(/\.jsonl$/, '')}</span>
-          </p>
-        </div>
-      {/snippet}
-      {#snippet row(m, i, attach, parked)}
-        {@const prev = rows[i - 1]}
-        <!-- media goes in as plain props: a spread would tie every prop read in the row to the
+      <p class="tm-sr-only" aria-live="polite">{spoken}</p>
+      <VirtualList
+        id="chat"
+        class="tm-chat__scroll"
+        items={rows}
+        key={rowKey}
+        estimate={140}
+        followBottom={true}
+        keepAlive={hasLiveCard}
+        {onWindow}
+      >
+        {#snippet header()}
+          <div class="tm-chat__top">
+            <p class="tm-chat__divider">
+              <span>{store.total} 条 · {store.chatFile?.replace(/\.jsonl$/, '')}</span>
+            </p>
+          </div>
+        {/snippet}
+        {#snippet row(m, i, attach, parked)}
+          {@const prev = rows[i - 1]}
+          <!-- media goes in as plain props: a spread would tie every prop read in the row to the
              row index, re-running the row's effects each time the virtual window shifts -->
-        {@const attached = mediaOf(m)}
-        <MessageItem
-          {attach}
-          {parked}
-          index={i}
-          name={m.name}
-          isUser={m.is_user}
-          isSystem={!!m.is_system}
-          time={timeOf(m)}
-          html={htmlOf(m, i)}
-          reasoningHtml={reasoningOf(m, i)}
-          avatarUrl={avatarOf(m)}
-          grouped={!!prev && prev.name === m.name && prev.is_user === m.is_user}
-          streaming={!!live && i === lastIndex && !m.is_user}
-          isLast={i === lastIndex}
-          swipe={m.swipes && m.swipes.length > 0
-            ? { id: m.swipe_id ?? 0, count: m.swipes.length }
-            : { id: 0, count: 1 }}
-          rawText={m.mes}
-          selectMode={deleteMode}
-          selected={deleteFrom !== null && i >= deleteFrom}
-          onSelect={() => (deleteFrom = i)}
-          onEdit={m === pendingRow || live ? undefined : (text) => editMessage(i, text)}
-          onDelete={m === pendingRow ? undefined : () => deleteMessage(i)}
-          onDeleteSwipe={m !== pendingRow &&
-          i === store.messages.length - 1 &&
-          (m.swipes?.length ?? 0) > 1
-            ? () => deleteSwipe(i)
-            : undefined}
-          onMoveUp={i > 0 ? () => move(i, -1) : undefined}
-          onMoveDown={i < store.messages.length - 1 ? () => move(i, 1) : undefined}
-          onToggleHidden={() => toggleHidden(i)}
-          onSwipe={swipe}
-          bookmarkLink={bookmarkOf(m)}
-          onOpenBookmark={() => {
-            const link = bookmarkOf(m);
-            if (link) void openBookmark(link);
-          }}
-          onCheckpoint={m === pendingRow || busy ? undefined : () => checkpoint(i)}
-          onBranch={m === pendingRow || busy ? undefined : () => branch(i)}
-          media={attached.media}
-          mediaDisplay={attached.display}
-          mediaIndex={attached.index}
-          hideText={attached.hideText}
-          fileNames={attached.files}
-          onMediaOpen={(index) => openMedia(i, index)}
-          onMediaDelete={m === pendingRow ? undefined : (index) => deleteMedia(i, index)}
-          onMediaIndex={(index) => setMediaIndex(i, index)}
+          {@const attached = mediaOf(m)}
+          <MessageItem
+            {attach}
+            {parked}
+            index={i}
+            name={m.name}
+            isUser={m.is_user}
+            isSystem={!!m.is_system}
+            time={timeOf(m)}
+            html={htmlOf(m, i)}
+            reasoningHtml={reasoningOf(m, i)}
+            avatarUrl={avatarOf(m)}
+            grouped={!!prev && prev.name === m.name && prev.is_user === m.is_user}
+            streaming={!!live && i === lastIndex && !m.is_user}
+            isLast={i === lastIndex}
+            swipe={m.swipes && m.swipes.length > 0
+              ? { id: m.swipe_id ?? 0, count: m.swipes.length }
+              : { id: 0, count: 1 }}
+            rawText={m.mes}
+            selectMode={deleteMode}
+            selected={deleteFrom !== null && i >= deleteFrom}
+            onSelect={() => (deleteFrom = i)}
+            onEdit={m === pendingRow || live ? undefined : (text) => editMessage(i, text)}
+            onDelete={m === pendingRow ? undefined : () => deleteMessage(i)}
+            onDeleteSwipe={m !== pendingRow &&
+            i === store.messages.length - 1 &&
+            (m.swipes?.length ?? 0) > 1
+              ? () => deleteSwipe(i)
+              : undefined}
+            onMoveUp={i > 0 ? () => move(i, -1) : undefined}
+            onMoveDown={i < store.messages.length - 1 ? () => move(i, 1) : undefined}
+            onToggleHidden={() => toggleHidden(i)}
+            onSwipe={swipe}
+            bookmarkLink={bookmarkOf(m)}
+            onOpenBookmark={() => {
+              const link = bookmarkOf(m);
+              if (link) void openBookmark(link);
+            }}
+            onCheckpoint={m === pendingRow || busy ? undefined : () => checkpoint(i)}
+            onBranch={m === pendingRow || busy ? undefined : () => branch(i)}
+            media={attached.media}
+            mediaDisplay={attached.display}
+            mediaIndex={attached.index}
+            hideText={attached.hideText}
+            fileNames={attached.files}
+            onMediaOpen={(index) => openMedia(i, index)}
+            onMediaDelete={m === pendingRow ? undefined : (index) => deleteMedia(i, index)}
+            onMediaIndex={(index) => setMediaIndex(i, index)}
+          />
+        {/snippet}
+      </VirtualList>
+      {#if error}
+        <div class="tm-chat__column tm-chat__banner" role="alert">
+          <span>{error}</span>
+          <button class="tm-chat__link" onclick={() => (error = null)}>关闭</button>
+        </div>
+      {/if}
+      {#if notice}
+        <div class="tm-chat__column tm-chat__banner tm-chat__banner--info">
+          <span>{notice}</span>
+          <button class="tm-chat__link" onclick={() => (notice = null)}>关闭</button>
+        </div>
+      {/if}
+      {#if scriptRuns.visible.length > 0}
+        <div class="tm-chat__column tm-chat__banner tm-chat__banner--info" role="status">
+          <span>脚本正在生成…</span>
+          <button class="tm-chat__link" onclick={() => stopScriptGeneration(null)}>停止</button>
+        </div>
+      {/if}
+      {#if scriptButtons.length > 0 && !deleteMode}
+        <div id="tm_script_buttons" class="tm-chat__column tm-chat__scriptbar">
+          {#each scriptButtons as button (`${button.scriptId}|${button.name}`)}
+            <button
+              class="tm-chat__scriptbtn qr--button menu_button"
+              onclick={() => helperBridge.emit(buttonEvent(button.scriptId, button.name))}
+              >{button.name}</button
+            >
+          {/each}
+        </div>
+      {/if}
+      {#if deleteMode}
+        <div id="dialogue_del_mes" class="tm-chat__column tm-chat__delbar">
+          <span
+            >{deleteFrom === null
+              ? '点一条消息：从它到末尾都会删掉'
+              : `将删除 ${store.messages.length - deleteFrom} 条`}</span
+          >
+          <span class="tm-chat__delbar-actions">
+            <button
+              class="tm-chat__link"
+              onclick={() => {
+                deleteMode = false;
+                deleteFrom = null;
+              }}>取消</button
+            >
+            <button
+              class="tm-chat__link tm-chat__link--danger"
+              disabled={deleteFrom === null}
+              onclick={confirmDelete}>删除</button
+            >
+          </span>
+        </div>
+      {:else}
+        <Composer
+          bind:draft
+          {busy}
+          disabled={store.loading}
+          quickContinue={quick.continue}
+          quickImpersonate={quick.impersonate}
+          onSend={send}
+          onAbort={abortGeneration}
+          onOptions={() => (optionsOpen = true)}
+          onContinue={() => generate('continue')}
+          onImpersonate={() => generate('impersonate')}
+          attachments={pendingMedia}
+          onRemoveAttachment={removePending}
+          onExtensions={() => (extensionHost.menuOpen = true)}
         />
-      {/snippet}
-    </VirtualList>
-    {#if error}
-      <div class="tm-chat__column tm-chat__banner" role="alert">
-        <span>{error}</span>
-        <button class="tm-chat__link" onclick={() => (error = null)}>关闭</button>
-      </div>
-    {/if}
-    {#if notice}
-      <div class="tm-chat__column tm-chat__banner tm-chat__banner--info">
-        <span>{notice}</span>
-        <button class="tm-chat__link" onclick={() => (notice = null)}>关闭</button>
-      </div>
-    {/if}
-    {#if scriptRuns.visible.length > 0}
-      <div class="tm-chat__column tm-chat__banner tm-chat__banner--info" role="status">
-        <span>脚本正在生成…</span>
-        <button class="tm-chat__link" onclick={() => stopScriptGeneration(null)}>停止</button>
-      </div>
-    {/if}
-    {#if scriptButtons.length > 0 && !deleteMode}
-      <div id="tm_script_buttons" class="tm-chat__column tm-chat__scriptbar">
-        {#each scriptButtons as button (`${button.scriptId}|${button.name}`)}
-          <button
-            class="tm-chat__scriptbtn qr--button menu_button"
-            onclick={() => helperBridge.emit(buttonEvent(button.scriptId, button.name))}
-            >{button.name}</button
-          >
-        {/each}
-      </div>
-    {/if}
-    {#if deleteMode}
-      <div id="dialogue_del_mes" class="tm-chat__column tm-chat__delbar">
-        <span
-          >{deleteFrom === null
-            ? '点一条消息：从它到末尾都会删掉'
-            : `将删除 ${store.messages.length - deleteFrom} 条`}</span
-        >
-        <span class="tm-chat__delbar-actions">
-          <button
-            class="tm-chat__link"
-            onclick={() => {
-              deleteMode = false;
-              deleteFrom = null;
-            }}>取消</button
-          >
-          <button
-            class="tm-chat__link tm-chat__link--danger"
-            disabled={deleteFrom === null}
-            onclick={confirmDelete}>删除</button
-          >
-        </span>
-      </div>
-    {:else}
-      <Composer
-        bind:draft
-        {busy}
-        disabled={store.loading}
-        quickContinue={quick.continue}
-        quickImpersonate={quick.impersonate}
-        onSend={send}
-        onAbort={abortGeneration}
-        onOptions={() => (optionsOpen = true)}
-        onContinue={() => generate('continue')}
-        onImpersonate={() => generate('impersonate')}
-        attachments={pendingMedia}
-        onRemoveAttachment={removePending}
-        onExtensions={extensionHost.status === 'running'
-          ? () => (extensionHost.menuOpen = true)
-          : undefined}
-      />
-    {/if}
-  </div>
+      {/if}
+    </div>
 
-  <BottomSheet id="options" open={optionsOpen} title="选项" onClose={() => (optionsOpen = false)}>
-    {#if isTauri()}
-      <button
-        id="attachFile"
-        class="tm-opt"
-        disabled={store.loading}
-        onclick={() => runOption(attach)}
-      >
-        <Icon name="paperclip" /><span>附加图片 / 文件</span>
+    <BottomSheet
+      id="options"
+      open={optionsOpen}
+      title="选项"
+      startAtEnd
+      onClose={() => (optionsOpen = false)}
+    >
+      {#if isTauri()}
+        <button
+          id="attachFile"
+          class="tm-opt"
+          disabled={store.loading}
+          onclick={() => runOption(attach)}
+        >
+          <Icon name="paperclip" /><span>附加图片 / 文件</span>
+        </button>
+      {/if}
+      {#if extensionHost.status === 'running'}
+        <button
+          id="tm_option_extensions"
+          class="tm-opt"
+          onclick={() => runOption(() => void (extensionHost.menuOpen = true))}
+        >
+          <Icon name="wand" /><span>扩展</span><small>扩展加的入口</small>
+        </button>
+      {/if}
+      <button id="chat_lorebook_button" class="tm-opt" onclick={() => runOption(openLore)}>
+        <Icon name="file-lines" /><span>聊天世界书</span><small
+          >{chatLore || '只在本聊天生效的世界书'}</small
+        >
       </button>
-    {/if}
-    {#if extensionHost.status === 'running'}
-      <button
-        id="tm_option_extensions"
-        class="tm-opt"
-        onclick={() => runOption(() => void (extensionHost.menuOpen = true))}
-      >
-        <Icon name="wand" /><span>扩展</span><small>扩展加的入口</small>
+      {#if store.group}
+        <button
+          class="tm-opt"
+          role="switch"
+          aria-checked={autoMode}
+          onclick={() => runOption(() => void (autoMode = !autoMode))}
+        >
+          <Icon name={autoMode ? 'stop' : 'wand'} /><span
+            >{autoMode ? '关闭自动模式' : '自动模式'}</span
+          ><small
+            >{autoMode
+              ? '成员正在自动接话'
+              : `每 ${autoModeDelay} 秒让成员自动接话，打字或停止就关`}</small
+          >
+        </button>
+      {/if}
+      {#if store.group && onEditGroup}
+        <button
+          class="tm-opt"
+          onclick={() =>
+            runOption(() => {
+              if (store.group) onEditGroup(store.group.id);
+            })}
+        >
+          <Icon name="user" /><span>群组设定</span><small>成员、发言顺序、生成模式</small>
+        </button>
+      {:else if onEditCharacter}
+        <button
+          class="tm-opt"
+          onclick={() =>
+            runOption(() => {
+              if (store.character) onEditCharacter(store.character.avatar);
+            })}
+        >
+          <Icon name="user" /><span>角色设定</span><small>编辑卡片、标签、头像</small>
+        </button>
+      {/if}
+      {#if isTauri()}
+        <button
+          id="tm_option_helper_render"
+          class="tm-opt"
+          aria-pressed={store.helperRender}
+          onclick={() => store.setHelperRender(!store.helperRender)}
+        >
+          <Icon name="wand" /><span>前端卡片渲染</span><small
+            >{store.helperRender
+              ? helperBridge.status === 'unsupported'
+                ? '此设备不支持'
+                : '已开启'
+              : '已关闭'}</small
+          >
+        </button>
+        <button
+          id="tm_option_scripts"
+          class="tm-opt"
+          onclick={() => {
+            optionsOpen = false;
+            scriptsOpen = true;
+          }}
+        >
+          <Icon name="code" /><span>脚本库</span><small
+            >{scriptLibrary.state.running.length
+              ? `${scriptLibrary.state.running.length} 个脚本在运行`
+              : '没有运行中的脚本'}</small
+          >
+        </button>
+      {/if}
+      <!-- from here down: ST's own options, in ST's order (its menu reads bottom-up from the button) -->
+      <button id="option_toggle_AN" class="tm-opt" onclick={() => runOption(openNote)}>
+        <Icon name="pencil" /><span>作者注释</span><small
+          >{String(store.chatMetadata[NOTE_METADATA_KEYS.prompt] ?? '').trim()
+            ? '已设置'
+            : '本聊天的注入提示'}</small
+        >
       </button>
-    {/if}
-    <button
-      id="option_continue"
-      class="tm-opt"
-      disabled={busy}
-      onclick={() => runOption(() => generate('continue'))}
-    >
-      <Icon name="arrow-right" /><span>续写</span><small>续写上一条消息</small>
-    </button>
-    <button
-      id="option_regenerate"
-      class="tm-opt"
-      disabled={busy}
-      onclick={() => runOption(() => generate('regenerate'))}
-    >
-      <Icon name="chevron-right" /><span>重新生成</span>
-    </button>
-    <button
-      id="option_impersonate"
-      class="tm-opt"
-      disabled={busy}
-      onclick={() => runOption(() => generate('impersonate'))}
-    >
-      <Icon name="mask" /><span>AI 帮答</span><small>让 AI 为你写这条消息</small>
-    </button>
-    <button
-      id="option_delete_mes"
-      class="tm-opt"
-      disabled={!!live}
-      onclick={() =>
-        runOption(() => {
-          deleteMode = true;
-          deleteFrom = null;
-        })}
-    >
-      <Icon name="trash" /><span>删除消息</span>
-    </button>
-    <button
-      id="option_start_new_chat"
-      class="tm-opt"
-      disabled={busy}
-      onclick={() => runOption(() => store.newChat())}
-    >
-      <Icon name="plus" /><span>开始新聊天</span>
-    </button>
-    <button
-      id="option_select_chat"
-      class="tm-opt"
-      onclick={() =>
-        runOption(() => {
-          chatsOpen = true;
-        })}
-    >
-      <Icon name="bars" /><span>管理聊天文件</span><small>{store.chats.length} 个</small>
-    </button>
-    <button
-      id="option_new_bookmark"
-      class="tm-opt"
-      disabled={busy || store.messages.length === 0}
-      onclick={() => runOption(() => checkpoint(store.messages.length - 1))}
-    >
-      <Icon name="flag-checkered" /><span>创建检查点</span><small>把到目前为止的聊天另存一份</small>
-    </button>
-    {#if store.mainChat()}
+      {#if store.mainChat()}
+        <button
+          id="option_back_to_main"
+          class="tm-opt"
+          disabled={busy}
+          onclick={() => runOption(() => store.backToMainChat())}
+        >
+          <Icon name="arrow-left" /><span>回到主聊天</span><small>{store.mainChat()}</small>
+        </button>
+      {/if}
       <button
-        id="option_back_to_main"
+        id="option_new_bookmark"
+        class="tm-opt"
+        disabled={busy || store.messages.length === 0}
+        onclick={() => runOption(() => checkpoint(store.messages.length - 1))}
+      >
+        <Icon name="flag-checkered" /><span>创建检查点</span><small
+          >把到目前为止的聊天另存一份</small
+        >
+      </button>
+      <button
+        id="option_start_new_chat"
         class="tm-opt"
         disabled={busy}
-        onclick={() => runOption(() => store.backToMainChat())}
+        onclick={() => runOption(() => store.newChat())}
       >
-        <Icon name="arrow-left" /><span>回到主聊天</span><small>{store.mainChat()}</small>
+        <Icon name="plus" /><span>开始新聊天</span>
       </button>
-    {/if}
-    <button id="option_toggle_AN" class="tm-opt" onclick={() => runOption(openNote)}>
-      <Icon name="pencil" /><span>作者注释</span><small
-        >{String(store.chatMetadata[NOTE_METADATA_KEYS.prompt] ?? '').trim()
-          ? '已设置'
-          : '本聊天的注入提示'}</small
-      >
-    </button>
-    <button id="chat_lorebook_button" class="tm-opt" onclick={() => runOption(openLore)}>
-      <Icon name="file-lines" /><span>聊天世界书</span><small
-        >{chatLore || '只在本聊天生效的世界书'}</small
-      >
-    </button>
-    {#if store.group}
       <button
-        class="tm-opt"
-        role="switch"
-        aria-checked={autoMode}
-        onclick={() => runOption(() => void (autoMode = !autoMode))}
-      >
-        <Icon name={autoMode ? 'stop' : 'wand'} /><span
-          >{autoMode ? '关闭自动模式' : '自动模式'}</span
-        ><small
-          >{autoMode
-            ? '成员正在自动接话'
-            : `每 ${autoModeDelay} 秒让成员自动接话，打字或停止就关`}</small
-        >
-      </button>
-    {/if}
-    {#if store.group && onEditGroup}
-      <button
+        id="option_select_chat"
         class="tm-opt"
         onclick={() =>
           runOption(() => {
-            if (store.group) onEditGroup(store.group.id);
+            chatsOpen = true;
           })}
       >
-        <Icon name="user" /><span>群组设定</span><small>成员、发言顺序、生成模式</small>
+        <Icon name="bars" /><span>管理聊天文件</span><small>{store.chats.length} 个</small>
       </button>
-    {:else if onEditCharacter}
       <button
+        id="option_delete_mes"
         class="tm-opt"
+        disabled={!!live}
         onclick={() =>
           runOption(() => {
-            if (store.character) onEditCharacter(store.character.avatar);
+            deleteMode = true;
+            deleteFrom = null;
           })}
       >
-        <Icon name="user" /><span>角色设定</span><small>编辑卡片、标签、头像</small>
-      </button>
-    {/if}
-    {#if isTauri()}
-      <button
-        id="tm_option_helper_render"
-        class="tm-opt"
-        aria-pressed={store.helperRender}
-        onclick={() => store.setHelperRender(!store.helperRender)}
-      >
-        <Icon name="wand" /><span>前端卡片渲染</span><small
-          >{store.helperRender
-            ? helperBridge.status === 'unsupported'
-              ? '此设备不支持'
-              : '已开启'
-            : '已关闭'}</small
-        >
+        <Icon name="trash" /><span>删除消息</span>
       </button>
       <button
-        id="tm_option_scripts"
+        id="option_regenerate"
         class="tm-opt"
-        onclick={() => {
-          optionsOpen = false;
-          scriptsOpen = true;
-        }}
+        disabled={busy}
+        onclick={() => runOption(() => generate('regenerate'))}
       >
-        <Icon name="code" /><span>脚本库</span><small
-          >{scriptLibrary.state.running.length
-            ? `${scriptLibrary.state.running.length} 个脚本在运行`
-            : '没有运行中的脚本'}</small
-        >
+        <Icon name="chevron-right" /><span>重新生成</span>
       </button>
-    {/if}
-  </BottomSheet>
-  <ScriptLibrary open={scriptsOpen} onClose={() => (scriptsOpen = false)} />
-
-  <BottomSheet open={loreOpen} title="聊天世界书" onClose={() => (loreOpen = false)}>
-    <button class="tm-opt" onclick={() => pickLore('')}>
-      <Icon name={chatLore ? 'xmark' : 'check'} /><span>无</span>
-    </button>
-    {#each loreNames as name (name)}
-      <button class="tm-opt chat_world_info_selector" onclick={() => pickLore(name)}>
-        <Icon name={name === chatLore ? 'check' : 'file-lines'} /><span>{name}</span>
+      <button
+        id="option_impersonate"
+        class="tm-opt"
+        disabled={busy}
+        onclick={() => runOption(() => generate('impersonate'))}
+      >
+        <Icon name="mask" /><span>AI 帮答</span><small>让 AI 为你写这条消息</small>
       </button>
-    {/each}
-    {#if chatLore && !loreNames.includes(chatLore)}
-      <p class="tm-form__sheet-text">当前绑定的「{chatLore}」文件不存在。</p>
-    {/if}
-    {#if loreNames.length === 0}
-      <p class="tm-form__sheet-text">还没有世界书，可以在「世界书」页新建或导入。</p>
-    {/if}
-  </BottomSheet>
+      <button
+        id="option_continue"
+        class="tm-opt"
+        disabled={busy}
+        onclick={() => runOption(() => generate('continue'))}
+      >
+        <Icon name="arrow-right" /><span>续写</span><small>续写上一条消息</small>
+      </button>
+    </BottomSheet>
+    <ScriptLibrary open={scriptsOpen} onClose={() => (scriptsOpen = false)} />
 
-  <BottomSheet
-    id="floatingPrompt"
-    open={noteOpen}
-    title="作者注释"
-    onClose={() => (noteOpen = false)}
-  >
-    <div class="tm-note">
-      <label class="tm-form__field">
-        <span class="tm-form__label">注释内容</span>
-        <textarea
-          id="extension_floating_prompt"
-          class="text_pole tm-form__textarea"
-          rows="4"
-          bind:value={noteForm.prompt}
-          placeholder="每次生成都会注入的提示，例如风格要求"></textarea>
-      </label>
-      <div class="tm-form__field">
-        <span class="tm-form__label">插入位置</span>
-        <Segmented
-          label="插入位置"
-          bind:value={noteForm.position}
-          options={[
-            { value: 'chat', label: '聊天中（按深度）' },
-            { value: 'after', label: '场景之后' },
-          ]}
-        />
-      </div>
-      <div class="tm-form__row">
-        <label class="tm-form__field tm-form__field--narrow">
-          <span class="tm-form__label">深度</span>
-          <input
-            id="extension_floating_depth"
-            class="text_pole tm-form__input"
-            type="number"
-            min="0"
-            max="9999"
-            bind:value={noteForm.depth}
-            disabled={noteForm.position !== 'chat'}
-          />
-        </label>
-        <label class="tm-form__field tm-form__field--narrow">
-          <span class="tm-form__label">间隔 <small>每 N 条消息</small></span>
-          <input
-            id="extension_floating_interval"
-            class="text_pole tm-form__input"
-            type="number"
-            min="0"
-            max="999"
-            bind:value={noteForm.interval}
-          />
-        </label>
-      </div>
-      <div class="tm-form__field">
-        <span class="tm-form__label">角色</span>
-        <Segmented
-          label="角色"
-          bind:value={noteForm.role}
-          options={[
-            { value: '0', label: '系统' },
-            { value: '1', label: '用户' },
-            { value: '2', label: '助手' },
-          ]}
-        />
-      </div>
-      <div class="tm-form__actions">
-        <Button variant="outline" size="sm" onclick={() => (noteOpen = false)}>取消</Button>
-        <Button variant="primary" size="sm" onclick={saveNote}>保存</Button>
-      </div>
-    </div>
-  </BottomSheet>
-
-  <BottomSheet
-    id="select_chat_popup"
-    open={chatsOpen}
-    title="聊天文件"
-    onClose={() => (chatsOpen = false)}
-  >
-    <div class="tm-chatlist">
-      <div class="tm-chatlist__tools">
-        <button
-          id="chat_import_button"
-          class="menu_button tm-form__chip"
-          disabled={busy}
-          onclick={importChats}><Icon name="file-export" size="sm" />导入聊天</button
-        >
-        <span class="tm-form__hint"
-          >{store.group
-            ? '只支持酒馆 .jsonl'
-            : '酒馆 .jsonl，或 Kobold / CAI / ooba / Agnai / Risu 的 .json'}</span
-        >
-      </div>
-      <input
-        aria-label="搜索聊天"
-        class="text_pole tm-form__input tm-chatlist__search"
-        type="search"
-        placeholder={store.group ? '搜索文件名' : '搜索文件名或消息内容'}
-        bind:value={chatQuery}
-        oninput={scheduleChatSearch}
-        autocapitalize="off"
-        autocorrect="off"
-      />
-      {#if visibleChats.length === 0}
-        <p class="tm-form__hint">{chatQuery ? '没有匹配的聊天。' : '还没有聊天。'}</p>
-      {/if}
-      {#each visibleChats as c (c.file)}
-        {@const hit = chatHits.get(c.file)}
-        <!-- ST .select_chat_block_wrapper: name + pencil, meta, action icons, preview -->
-        <div
-          class="tm-chatrow select_chat_block_wrapper"
-          class:is-active={c.file === store.chatFile}
-          class:is-new={importedChats.includes(c.file)}
-          file_name={c.file}
-        >
-          <div class="tm-chatrow__head select_chat_block" file_name={c.file}>
-            <button
-              class="tm-chatrow__open"
-              onclick={() => {
-                chatsOpen = false;
-                void store.openChat(c.file);
-              }}
-            >
-              <span class="tm-form__item-name select_chat_block_filename">{chatStem(c.file)}</span>
-              <span class="tm-form__item-meta chat_messages_num">{c.mes_count} 条</span>
-            </button>
-            <span class="tm-chatrow__actions select_chat_actions">
-              <button
-                class="tm-form__icon renameChatButton"
-                title="重命名"
-                aria-label="重命名"
-                disabled={busy}
-                onclick={() => {
-                  renameChatTarget = c;
-                  renameChatTo = chatStem(c.file);
-                }}><Icon name="pencil" size="sm" /></button
-              >
-              <button
-                class="tm-form__icon exportRawChatButton"
-                title="导出 .jsonl（原文件，可导回酒馆）"
-                aria-label="导出 .jsonl"
-                data-format="jsonl"
-                onclick={() => runChatAction(c, (row) => exportChatFile(row, 'jsonl'))}
-                ><Icon name="file-export" size="sm" /></button
-              >
-              <button
-                class="tm-form__icon exportChatButton"
-                title="导出 .txt（纯文本）"
-                aria-label="导出 .txt"
-                data-format="txt"
-                onclick={() => runChatAction(c, (row) => exportChatFile(row, 'txt'))}
-                ><Icon name="file-lines" size="sm" /></button
-              >
-              <button
-                class="tm-form__icon tm-chatrow__danger PastChat_cross"
-                title="删除聊天"
-                aria-label="删除聊天"
-                disabled={busy}
-                file_name={c.file}
-                onclick={() => (deleteChatTarget = c)}><Icon name="trash" size="sm" /></button
-              >
-            </span>
-          </div>
-          {#if hit || c.last_mes}
-            <p class="tm-chatrow__preview select_chat_block_mes">
-              {hit ? `匹配：${hit.snippet.slice(0, 80)}` : (c.last_mes ?? '').slice(0, 80)}
-            </p>
-          {/if}
-        </div>
+    <BottomSheet open={loreOpen} title="聊天世界书" onClose={() => (loreOpen = false)}>
+      <button class="tm-opt" onclick={() => pickLore('')}>
+        <Icon name={chatLore ? 'xmark' : 'check'} /><span>无</span>
+      </button>
+      {#each loreNames as name (name)}
+        <button class="tm-opt chat_world_info_selector" onclick={() => pickLore(name)}>
+          <Icon name={name === chatLore ? 'check' : 'file-lines'} /><span>{name}</span>
+        </button>
       {/each}
-    </div>
-  </BottomSheet>
+      {#if chatLore && !loreNames.includes(chatLore)}
+        <p class="tm-form__sheet-text">当前绑定的「{chatLore}」文件不存在。</p>
+      {/if}
+      {#if loreNames.length === 0}
+        <p class="tm-form__sheet-text">还没有世界书，可以在「世界书」页新建或导入。</p>
+      {/if}
+    </BottomSheet>
 
-  <BottomSheet
-    open={!!renameChatTarget}
-    title="重命名聊天"
-    onClose={() => (renameChatTarget = null)}
-  >
-    <div class="tm-chatlist">
-      <input
-        aria-label="聊天的新名字"
-        class="text_pole tm-form__input"
-        type="text"
-        bind:value={renameChatTo}
-        autocapitalize="off"
-        autocorrect="off"
-        onkeydown={(e) => {
-          if (e.key === 'Enter') void doRenameChat();
-        }}
-      />
-      <div class="tm-form__sheet-actions">
-        <Button variant="outline" onclick={() => (renameChatTarget = null)}>取消</Button>
-        <Button variant="primary" disabled={!renameChatTo.trim()} onclick={doRenameChat}
-          >重命名</Button
-        >
-      </div>
-    </div>
-  </BottomSheet>
-
-  {#if lightbox}
-    <!-- ST zoomed image popup: tap anywhere to close -->
-    <div
-      class="tm-lightbox"
-      role="button"
-      tabindex="0"
-      aria-label="关闭大图"
-      onclick={() => (lightbox = null)}
-      onkeydown={(e) => {
-        if (e.key === 'Escape' || e.key === 'Enter') lightbox = null;
-      }}
+    <BottomSheet
+      id="floatingPrompt"
+      open={noteOpen}
+      title="作者注释"
+      onClose={() => (noteOpen = false)}
     >
-      <img class="tm-lightbox__img" src={lightbox.url} alt={lightbox.title} />
-      {#if lightbox.title}<span class="tm-lightbox__title">{lightbox.title}</span>{/if}
-    </div>
-  {/if}
+      <div class="tm-note">
+        <label class="tm-form__field">
+          <span class="tm-form__label">注释内容</span>
+          <textarea
+            id="extension_floating_prompt"
+            class="text_pole tm-form__textarea"
+            rows="4"
+            bind:value={noteForm.prompt}
+            placeholder="每次生成都会注入的提示，例如风格要求"></textarea>
+        </label>
+        <div class="tm-form__field">
+          <span class="tm-form__label">插入位置</span>
+          <Segmented
+            label="插入位置"
+            bind:value={noteForm.position}
+            options={[
+              { value: 'chat', label: '聊天中（按深度）' },
+              { value: 'after', label: '场景之后' },
+            ]}
+          />
+        </div>
+        <div class="tm-form__row">
+          <label class="tm-form__field tm-form__field--narrow">
+            <span class="tm-form__label">深度</span>
+            <input
+              id="extension_floating_depth"
+              class="text_pole tm-form__input"
+              type="number"
+              min="0"
+              max="9999"
+              bind:value={noteForm.depth}
+              disabled={noteForm.position !== 'chat'}
+            />
+          </label>
+          <label class="tm-form__field tm-form__field--narrow">
+            <span class="tm-form__label">间隔 <small>每 N 条消息</small></span>
+            <input
+              id="extension_floating_interval"
+              class="text_pole tm-form__input"
+              type="number"
+              min="0"
+              max="999"
+              bind:value={noteForm.interval}
+            />
+          </label>
+        </div>
+        <div class="tm-form__field">
+          <span class="tm-form__label">角色</span>
+          <Segmented
+            label="角色"
+            bind:value={noteForm.role}
+            options={[
+              { value: '0', label: '系统' },
+              { value: '1', label: '用户' },
+              { value: '2', label: '助手' },
+            ]}
+          />
+        </div>
+        <div class="tm-form__actions">
+          <Button variant="outline" size="sm" onclick={() => (noteOpen = false)}>取消</Button>
+          <Button variant="primary" size="sm" onclick={saveNote}>保存</Button>
+        </div>
+      </div>
+    </BottomSheet>
 
-  <BottomSheet open={!!deleteChatTarget} title="删除聊天" onClose={() => (deleteChatTarget = null)}>
-    <p class="tm-form__sheet-text">
-      删除「{deleteChatTarget
-        ? chatStem(deleteChatTarget.file)
-        : ''}」？{deleteChatTarget?.mes_count ?? 0} 条消息会一起删掉，无法撤销。
-    </p>
-    <div class="tm-form__sheet-actions">
-      <Button variant="outline" onclick={() => (deleteChatTarget = null)}>取消</Button>
-      <Button variant="primary" class="tm-chat__danger-btn" onclick={doDeleteChat}>删除</Button>
-    </div>
-  </BottomSheet>
-{/if}
+    <BottomSheet
+      id="select_chat_popup"
+      open={chatsOpen}
+      title="聊天文件"
+      onClose={() => (chatsOpen = false)}
+    >
+      <div class="tm-chatlist">
+        <div class="tm-chatlist__tools">
+          <button
+            id="chat_import_button"
+            class="menu_button tm-form__chip"
+            disabled={busy}
+            onclick={importChats}><Icon name="file-export" size="sm" />导入聊天</button
+          >
+          <span class="tm-form__hint"
+            >{store.group
+              ? '只支持酒馆 .jsonl'
+              : '酒馆 .jsonl，或 Kobold / CAI / ooba / Agnai / Risu 的 .json'}</span
+          >
+        </div>
+        <input
+          aria-label="搜索聊天"
+          class="text_pole tm-form__input tm-chatlist__search"
+          type="search"
+          placeholder={store.group ? '搜索文件名' : '搜索文件名或消息内容'}
+          bind:value={chatQuery}
+          oninput={scheduleChatSearch}
+          autocapitalize="off"
+          autocorrect="off"
+        />
+        {#if visibleChats.length === 0}
+          <p class="tm-form__hint">{chatQuery ? '没有匹配的聊天。' : '还没有聊天。'}</p>
+        {/if}
+        {#each visibleChats as c (c.file)}
+          {@const hit = chatHits.get(c.file)}
+          <!-- ST .select_chat_block_wrapper: name + pencil, meta, action icons, preview -->
+          <div
+            class="tm-chatrow select_chat_block_wrapper"
+            class:is-active={c.file === store.chatFile}
+            class:is-new={importedChats.includes(c.file)}
+            file_name={c.file}
+          >
+            <div class="tm-chatrow__head select_chat_block" file_name={c.file}>
+              <button
+                class="tm-chatrow__open"
+                onclick={() => {
+                  chatsOpen = false;
+                  store.openChat(c.file).catch((e: unknown) => {
+                    toasts.show(
+                      'error',
+                      `打不开这个聊天，还停在原来的聊天：${e instanceof Error ? e.message : String(e)}`,
+                      '',
+                      0,
+                    );
+                  });
+                }}
+              >
+                <span class="tm-form__item-name select_chat_block_filename">{chatStem(c.file)}</span
+                >
+                <span class="tm-form__item-meta chat_messages_num">{c.mes_count} 条</span>
+              </button>
+              <span class="tm-chatrow__actions select_chat_actions">
+                <button
+                  class="tm-form__icon renameChatButton"
+                  title="重命名"
+                  aria-label="重命名"
+                  disabled={busy}
+                  onclick={() => {
+                    renameChatTarget = c;
+                    renameChatTo = chatStem(c.file);
+                  }}><Icon name="pencil" size="sm" /></button
+                >
+                <button
+                  class="tm-form__icon exportRawChatButton"
+                  title="导出 .jsonl（原文件，可导回酒馆）"
+                  aria-label="导出 .jsonl"
+                  data-format="jsonl"
+                  onclick={() => runChatAction(c, (row) => exportChatFile(row, 'jsonl'))}
+                  ><Icon name="file-export" size="sm" /></button
+                >
+                <button
+                  class="tm-form__icon exportChatButton"
+                  title="导出 .txt（纯文本）"
+                  aria-label="导出 .txt"
+                  data-format="txt"
+                  onclick={() => runChatAction(c, (row) => exportChatFile(row, 'txt'))}
+                  ><Icon name="file-lines" size="sm" /></button
+                >
+                <button
+                  class="tm-form__icon tm-chatrow__danger PastChat_cross"
+                  title="删除聊天"
+                  aria-label="删除聊天"
+                  disabled={busy}
+                  file_name={c.file}
+                  onclick={() => (deleteChatTarget = c)}><Icon name="trash" size="sm" /></button
+                >
+              </span>
+            </div>
+            {#if hit || c.last_mes}
+              <p class="tm-chatrow__preview select_chat_block_mes">
+                {hit ? `匹配：${hit.snippet.slice(0, 80)}` : (c.last_mes ?? '').slice(0, 80)}
+              </p>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </BottomSheet>
+
+    <BottomSheet
+      open={!!renameChatTarget}
+      title="重命名聊天"
+      onClose={() => (renameChatTarget = null)}
+    >
+      <div class="tm-chatlist">
+        <input
+          aria-label="聊天的新名字"
+          class="text_pole tm-form__input"
+          type="text"
+          bind:value={renameChatTo}
+          autocapitalize="off"
+          autocorrect="off"
+          onkeydown={(e) => {
+            if (e.key === 'Enter') void doRenameChat();
+          }}
+        />
+        <div class="tm-form__sheet-actions">
+          <Button variant="outline" onclick={() => (renameChatTarget = null)}>取消</Button>
+          <Button variant="primary" disabled={!renameChatTo.trim()} onclick={doRenameChat}
+            >重命名</Button
+          >
+        </div>
+      </div>
+    </BottomSheet>
+
+    {#if lightbox}
+      <!-- ST zoomed image popup: tap anywhere to close -->
+      <div
+        class="tm-lightbox"
+        role="button"
+        tabindex="0"
+        aria-label="关闭大图"
+        onclick={() => (lightbox = null)}
+        onkeydown={(e) => {
+          if (e.key === 'Escape' || e.key === 'Enter') lightbox = null;
+        }}
+      >
+        <img class="tm-lightbox__img" src={lightbox.url} alt={lightbox.title} />
+        {#if lightbox.title}<span class="tm-lightbox__title">{lightbox.title}</span>{/if}
+      </div>
+    {/if}
+
+    <BottomSheet
+      open={!!deleteChatTarget}
+      title="删除聊天"
+      onClose={() => (deleteChatTarget = null)}
+    >
+      <p class="tm-form__sheet-text">
+        删除「{deleteChatTarget
+          ? chatStem(deleteChatTarget.file)
+          : ''}」？{deleteChatTarget?.mes_count ?? 0} 条消息会一起删掉，无法撤销。
+      </p>
+      <div class="tm-form__sheet-actions">
+        <Button variant="outline" onclick={() => (deleteChatTarget = null)}>取消</Button>
+        <Button variant="primary" class="tm-chat__danger-btn" onclick={doDeleteChat}>删除</Button>
+      </div>
+    </BottomSheet>
+  {/if}
+</div>
 
 <style>
+  /* no box of its own: the page's parts lay out as children of the app shell, as before */
+  .tm-chat-page {
+    display: contents;
+  }
+  .tm-chat-page--hidden {
+    display: none;
+  }
   .tm-chat {
     position: relative;
     flex: 1;
@@ -1930,6 +2071,27 @@
     inset: 0;
     overflow: hidden;
     pointer-events: none;
+  }
+  /* a picked image: ST css/backgrounds.css fitting rules, dimmed / blurred like the avatar one */
+  .tm-chat__bg--image {
+    background-repeat: no-repeat;
+    background-size: cover;
+    opacity: var(--tm-chat-bg-opacity);
+    filter: blur(var(--tm-chat-bg-blur));
+  }
+  .tm-chat__bg--image:global(.cover) {
+    background-position: center;
+  }
+  .tm-chat__bg--image:global(.contain) {
+    background-size: contain;
+    background-position: center;
+  }
+  .tm-chat__bg--image:global(.stretch) {
+    background-size: 100% 100%;
+  }
+  .tm-chat__bg--image:global(.center) {
+    background-size: auto;
+    background-position: center;
   }
   .tm-chat__bg-img {
     width: 100%;

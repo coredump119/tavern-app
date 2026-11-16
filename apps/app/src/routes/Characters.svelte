@@ -5,7 +5,7 @@
   import { cardImport, fileUrl, isTauri, type CharacterRow } from '../lib/ipc';
   import { importBackup as importBackupZip } from '../lib/backup';
   import { pickFiles } from '../lib/files';
-  import { embeddedWorldName } from '../lib/worlds';
+  import { offerCardExtras } from '../lib/card-extras.svelte';
   import {
     TAG_IMPORT_SETTING,
     groupCollageAvatars,
@@ -19,7 +19,7 @@
   import Button from '@tm/ui/components/Button.svelte';
   import Icon from '../lib/components/Icon.svelte';
   import {
-    loadCharacter,
+    deleteCharacter,
     planImportedTags,
     resolveTagImport,
     tagImportSetting,
@@ -106,6 +106,29 @@
   let busy = $state<string | null>(null);
   let notice = $state<string | null>(null);
 
+  // delete straight from the list (same steps as the editor's more-menu, DEV_NOTES §9.41)
+  let deleting = $state<CharacterRow | null>(null);
+  let deleteChats = $state(true);
+  async function doDelete() {
+    const c = deleting;
+    deleting = null;
+    if (!c || !store.root) return;
+    busy = '删除中…';
+    try {
+      await store.flushDeferred();
+      const next = await deleteCharacter(store.root, c.avatar, deleteChats, settingsPlain);
+      if (next) await store.saveSettings(next);
+      if (store.character?.avatar === c.avatar) await store.closeCharacter();
+      else if (store.group?.members.includes(c.avatar)) await store.reloadGroup();
+      await store.refreshCharacters();
+      notice = `已删除「${c.name}」`;
+    } catch (e) {
+      notice = `删除失败：${e instanceof Error ? e.message : String(e)}`;
+    } finally {
+      busy = null;
+    }
+  }
+
   // ST's list mixes characters and groups (getEntitiesList), favourites first
   type Entry =
     | { kind: 'char'; key: string; name: string; fav: boolean; mtime: number; c: CharacterRow }
@@ -145,19 +168,6 @@
   });
 
   /** names of just-imported cards that carry a character_book (ST asks to import it on first open) */
-  async function cardsWithEmbeddedLore(avatars: string[]): Promise<string[]> {
-    const names: string[] = [];
-    for (const a of avatars) {
-      try {
-        const card = (await loadCharacter(store.root ?? '', a)).raw;
-        if (embeddedWorldName(card)) names.push(a.replace(/\.png$/i, ''));
-      } catch {
-        /* unreadable card: no hint */
-      }
-    }
-    return names;
-  }
-
   async function importCards() {
     if (!store.root) return;
     const files = await pickFiles({ extensions: ['png', 'json'], multiple: true, title: '角色卡' });
@@ -174,11 +184,17 @@
     }
     await store.refreshCharacters();
     busy = null;
-    const lore = await cardsWithEmbeddedLore(done);
-    notice =
-      `已导入 ${done.length} 张${failed.length ? `，失败 ${failed.length}：${failed.join('；')}` : ''}` +
-      (lore.length ? `。${lore.join('、')} 自带世界书，可在角色编辑页导入` : '');
+    notice = `已导入 ${done.length} 张${failed.length ? `，失败 ${failed.length}：${failed.join('；')}` : ''}`;
     await importTagsFor(done);
+    // ST asks about a card's own world book and regex scripts; here right after the import
+    for (const avatar of done) {
+      try {
+        const extras = await offerCardExtras(avatar);
+        if (extras.length) notice = `${notice}。${extras.join('，')}`;
+      } catch (e) {
+        notice = `${notice}。${avatar}：${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
   }
 
   async function importBackup() {
@@ -321,6 +337,15 @@
                   onclick={() => onEdit(c.avatar)}><Icon name="pencil" size="sm" /></button
                 >
               {/if}
+              <button
+                class="tm-chars__del"
+                aria-label="删除 {c.name}"
+                disabled={!!busy}
+                onclick={() => {
+                  deleteChats = true;
+                  deleting = c;
+                }}><Icon name="trash" size="sm" /></button
+              >
             </li>
           {/if}
         {/each}
@@ -328,6 +353,20 @@
     {/if}
   {/if}
 </section>
+
+<BottomSheet open={!!deleting} title="删除角色" onClose={() => (deleting = null)}>
+  <p class="tm-chars__sheet-text">
+    删除「{deleting?.name}」（{deleting?.avatar}）？卡片文件会被移除，无法撤销。
+  </p>
+  <label class="tm-chars__check">
+    <input type="checkbox" bind:checked={deleteChats} />
+    同时删除这个角色的聊天记录
+  </label>
+  <div class="tm-chars__sheet-actions">
+    <Button variant="outline" onclick={() => (deleting = null)}>取消</Button>
+    <Button variant="primary" class="tm-chars__danger-btn" onclick={doDelete}>删除</Button>
+  </div>
+</BottomSheet>
 
 {#if tagQueue[0]}
   {@const item = tagQueue[0]}
@@ -523,6 +562,47 @@
     font-size: var(--tm-text-xs);
     color: var(--tm-color-text-muted);
     text-align: center;
+  }
+  .tm-chars__del {
+    position: absolute;
+    bottom: var(--tm-space-1);
+    right: var(--tm-space-1);
+    width: calc(var(--tm-touch-target) * 0.8);
+    height: calc(var(--tm-touch-target) * 0.8);
+    display: inline-grid;
+    place-items: center;
+    border-radius: var(--tm-radius-full);
+    color: var(--tm-color-text-muted);
+  }
+  .tm-chars__del:hover {
+    color: var(--tm-color-danger);
+  }
+  .tm-chars__sheet-text {
+    font-size: var(--tm-text-sm);
+    color: var(--tm-color-text-secondary);
+    line-height: var(--tm-leading-relaxed);
+    padding: var(--tm-space-2) 0;
+  }
+  .tm-chars__check {
+    display: flex;
+    align-items: center;
+    gap: var(--tm-space-3);
+    min-height: var(--tm-touch-target);
+    font-size: var(--tm-text-sm);
+  }
+  .tm-chars__check input {
+    accent-color: var(--tm-color-accent);
+    width: var(--tm-icon-md);
+    height: var(--tm-icon-md);
+  }
+  .tm-chars__sheet-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--tm-space-3);
+    padding-top: var(--tm-space-3);
+  }
+  :global(.tm-chars__danger-btn) {
+    background: var(--tm-color-danger) !important;
   }
   .tm-chars__fav {
     position: absolute;

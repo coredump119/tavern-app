@@ -6,6 +6,7 @@
  */
 import {
   REGEX_SCRIPT_TYPES,
+  isPresetRegexAllowed,
   setPresetRegexAllowed,
   setScopedRegexAllowed,
   type RegexScript,
@@ -43,6 +44,33 @@ export function regexPresetContext(settings: Obj): RegexPresetContext {
     bucketKey: 'textgenerationwebui_settings',
     presetDir: 'TextGen Settings',
   };
+}
+
+/**
+ * A preset's own regex scripts are on from the first time the preset is applied (DEV_NOTES §9.41).
+ * ST asks first; here it happens once per preset, the caller says so in its notice, and the Regex
+ * page can turn them off again (re-applying the preset does not turn them back on). Returns the
+ * `extension_settings` to save and how many scripts that covers, or null when nothing changes.
+ */
+export function allowPresetRegexOnce(
+  settings: Obj | null,
+  api: string,
+  presetName: string,
+  presetExtensions: unknown,
+): { extensionSettings: Obj; count: number } | null {
+  const scripts = (presetExtensions as Obj | undefined)?.['regex_scripts'];
+  if (!presetName || !Array.isArray(scripts) || scripts.length === 0) return null;
+  const key = `AlertRegex_${api}_${presetName}`;
+  try {
+    if (localStorage.getItem(key) !== null) return null;
+    localStorage.setItem(key, 'true');
+  } catch {
+    return null;
+  }
+  const ext = structuredClone(extOf({ ...(settings ?? {}) }));
+  if (isPresetRegexAllowed(ext, api, presetName)) return null;
+  setPresetRegexAllowed(ext, api, presetName, true);
+  return { extensionSettings: ext, count: scripts.length };
 }
 
 export function extOf(settings: Obj): Obj {

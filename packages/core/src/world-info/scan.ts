@@ -106,6 +106,7 @@ export async function checkWorldInfo(
 
   let scanState: ScanState = SCAN_STATE.INITIAL;
   let tokenBudgetOverflowed = false;
+  let budgetOverflow: WIActivated['budgetOverflow'];
   let count = 0;
   const allActivatedEntries = new Map<string, WIEntry>();
   const failedProbabilityChecks = new Set<WIEntry>();
@@ -292,6 +293,11 @@ export async function checkWorldInfo(
       ) {
         if (!tokenBudgetOverflowed) {
           if (s.world_info_overflow_alert) deps.onOverflow?.(budget, allActivatedEntries.size);
+          budgetOverflow = {
+            budget,
+            activated: allActivatedEntries.size,
+            firstSkipped: String(entry.comment || entry.key?.[0] || ''),
+          };
           log(
             `[WI] budget of ${budget} reached, stopping after ${allActivatedEntries.size} entries`,
           );
@@ -440,6 +446,7 @@ export async function checkWorldInfo(
     ANAfterEntries: ANBottomEntries,
     outletEntries: WIOutletEntries,
     allActivatedEntries: new Set(allActivatedEntries.values()),
+    ...(budgetOverflow ? { budgetOverflow } : {}),
   };
 }
 
