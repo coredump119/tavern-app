@@ -24,3 +24,8 @@
 -keep class dev.coredump119.tavern.GenerationService {
     public static void setGenerating(android.content.Context, boolean);
 }
+
+# called from Rust over JNI (android_files.rs)
+-keep class dev.coredump119.tavern.PickedFiles {
+    public static java.lang.String copyTo(android.content.Context, java.lang.String, java.lang.String);
+}

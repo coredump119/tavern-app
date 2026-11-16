@@ -10,6 +10,8 @@ use tm_data::{archive, card, chat, content, crashlog, extensions, index, layout,
 use tm_keys::{SecretBackend, SecretMeta, SecretRef, SecretVault};
 use tm_net::{CancellationToken, FetchRequest, FetchResponse, GenEvent, GenerateRequest};
 use tm_tokenizers::{EncodeResult, TokenizerService, LOCAL_TOKENIZER_NAMES};
+#[cfg(target_os = "android")]
+mod android_files;
 mod background;
 mod ext_host;
 mod helper_realm;
@@ -78,7 +80,24 @@ fn percent_decode(s: &str) -> String {
 const PICKED_STAGE_DIR: &str = "tm-picked";
 
 fn picked_stage_dir() -> PathBuf {
-    std::env::temp_dir().join(PICKED_STAGE_DIR)
+    #[cfg(target_os = "android")]
+    let base = android_files::cache_dir();
+    #[cfg(not(target_os = "android"))]
+    let base = std::env::temp_dir();
+    base.join(PICKED_STAGE_DIR)
+}
+
+/// Make a fresh `<dir>/<stamp>` folder; a taken stamp (two picks in one millisecond) moves on.
+fn new_stage_slot(dir: &Path, mut stamp: u64) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    loop {
+        let slot = dir.join(stamp.to_string());
+        match std::fs::create_dir(&slot) {
+            Ok(()) => return Ok(slot),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => stamp += 1,
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 /// Copy `src` to `<dir>/<stamp>/<file name>`. The name is kept: importers read it.
@@ -86,11 +105,20 @@ fn stage_picked(dir: &Path, src: &Path, stamp: u64) -> std::io::Result<PathBuf> 
     let name = src
         .file_name()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no file name"))?;
-    let slot = dir.join(stamp.to_string());
-    std::fs::create_dir_all(&slot)?;
-    let dest = slot.join(name);
+    let dest = new_stage_slot(dir, stamp)?.join(name);
     std::fs::copy(src, &dest)?;
     Ok(dest)
+}
+
+/// `stage_picked` for whatever the dialog plugin returned: a path, an iOS `file://` URL, or on
+/// Android a `content://` address, which only the system can read for us (DEV_NOTES §9.46).
+fn stage_picked_source(dir: &Path, raw: &str, stamp: u64) -> Result<PathBuf, String> {
+    #[cfg(target_os = "android")]
+    if raw.starts_with("content://") {
+        let slot = new_stage_slot(dir, stamp).map_err(|e| e.to_string())?;
+        return android_files::copy_content(raw, &slot);
+    }
+    stage_picked(dir, &picked_path(raw), stamp).map_err(|e| e.to_string())
 }
 
 /// Remove a staged copy together with its slot folder. Anything that is not
@@ -116,9 +144,8 @@ fn unstage_picked(dir: &Path, staged: &Path) -> std::io::Result<()> {
 #[tauri::command]
 async fn picked_stage(path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        stage_picked(&picked_stage_dir(), &picked_path(&path), now_millis())
+        stage_picked_source(&picked_stage_dir(), &path, now_millis())
             .map(|p| p.to_string_lossy().into_owned())
-            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1368,8 +1395,6 @@ fn net_url_policy(url: String) -> UrlPolicy {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // copies left behind by a run that ended mid-dialog
-    let _ = std::fs::remove_dir_all(picked_stage_dir());
     let builder = tauri::Builder::default()
         .invoke_system(helper_realm::invoke_system_script())
         .register_asynchronous_uri_scheme_protocol(helper_realm::SCHEME, helper_realm::handle)
@@ -1467,6 +1492,9 @@ pub fn run() {
         ])
         .setup(|app| {
             install_panic_log(app.path().app_data_dir()?.join("logs"));
+            // copies left behind by earlier runs; done here because on Android the folder is
+            // only known once the app context exists
+            let _ = std::fs::remove_dir_all(picked_stage_dir());
             #[cfg(target_os = "ios")]
             ios_layout::on_setup(app);
             Ok(())
@@ -1537,6 +1565,11 @@ mod tests {
         assert_eq!(staged, stage.join("1700").join("my ext.zip"));
         assert_eq!(std::fs::read(&staged).unwrap(), b"zip");
         assert!(stage_picked(&stage, &dir.join("missing.png"), 1701).is_err());
+        // a taken stamp does not overwrite the earlier copy
+        let again = stage_picked(&stage, &src, 1700).unwrap();
+        assert_eq!(again, stage.join("1702").join("my ext.zip"));
+        let by_url = stage_picked_source(&stage, "file:///nowhere/x%20y.png", 1800);
+        assert!(by_url.is_err());
 
         // not a slot: the source itself, a `..` hop, a non-numeric folder
         unstage_picked(&stage, &src).unwrap();

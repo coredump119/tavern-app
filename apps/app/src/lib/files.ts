@@ -18,7 +18,16 @@ export async function pickFiles(opts: {
     filters: [{ name: opts.title ?? 'files', extensions: opts.extensions }],
   });
   if (!picked) return [];
-  return Array.isArray(picked) ? picked : [picked];
+  return Promise.all((Array.isArray(picked) ? picked : [picked]).map(localPick));
+}
+
+/**
+ * Android's picker hands out `content://` addresses: nothing can open them by path and they carry
+ * no file name, so each one is copied into our own folder right away and the copy's path is what
+ * callers get (DEV_NOTES §9.46). The copies are cleared on the next start.
+ */
+function localPick(path: string): Promise<string> {
+  return path.startsWith('content://') ? pickedStage(path) : Promise.resolve(path);
 }
 
 /**
