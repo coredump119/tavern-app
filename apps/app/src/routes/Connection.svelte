@@ -2,6 +2,7 @@
   /**
    * API connection (ST's "API Connections" drawer, Chat Completion only — DEV_NOTES §9.18):
    * source, key (keyring), per-source fields, reverse-proxy presets, model, connect / status.
+   * On top: connection profiles, a saved set of those choices to switch between (§9.49).
    */
   import { onDestroy, onMount } from 'svelte';
   import {
@@ -24,10 +25,20 @@
     textgenModelKey,
     textgenSecretKey,
     type TextgenSettings,
+    PROXY_NONE,
+    connectionProfileMatches,
+    createConnectionProfile,
     deleteProxyPreset,
+    loadConnectionProfiles,
     loadProxyPresets,
     modelSettingKey,
+    planConnectionProfile,
+    profileNameTaken,
     setProxyPreset,
+    suggestProfileName,
+    updateConnectionProfile,
+    type ConnectionProfiles,
+    type ConnectionState,
     type ModelInfo,
     type OaiSettings,
     type ProxyPreset,
@@ -60,7 +71,9 @@
     oaiRuntime,
   } from '../lib/oai.svelte';
   import { mainApiOf } from '../lib/chat/core-state';
+  import { emitAppEvent } from '../lib/events';
   import { askPopup } from '../lib/popup.svelte';
+  import { toasts } from '../lib/toast.svelte';
 
   const store = chatStore;
   let oai = $state<OaiSettings>({});
@@ -299,6 +312,209 @@
     set('reverse_proxy', next.url);
   }
 
+  // ---- connection profiles (ST connection-manager, DEV_NOTES §9.49) ----
+  /** what a profile field is called on this page */
+  const PROFILE_FIELD_NAMES: Readonly<Record<string, string>> = {
+    api: 'API 来源',
+    'api-url': '地址',
+    model: '模型',
+    proxy: '反向代理',
+    'prompt-post-processing': '提示词后处理',
+    'secret-id': '密钥',
+  };
+  const profileData = $derived.by(() => {
+    const extensions = store.settings?.['extension_settings'] as
+      Record<string, unknown> | undefined;
+    const raw = extensions?.['connectionManager'];
+    return loadConnectionProfiles(raw ? $state.snapshot(raw) : null);
+  });
+  const activeProfile = $derived(
+    profileData.profiles.find((p) => p.id === profileData.selectedProfile) ?? null,
+  );
+  function connectionState(): ConnectionState {
+    return {
+      mainApi,
+      oai,
+      tg: tg as TextgenSettings,
+      proxyName: selectedProxy?.name ?? PROXY_NONE.name,
+      secretId: keys.find((k) => k.active)?.id ?? null,
+    };
+  }
+  /** the selected profile no longer says what the page shows */
+  const profileEdited = $derived(
+    ready &&
+      !busy &&
+      !!activeProfile &&
+      !connectionProfileMatches(activeProfile, connectionState()),
+  );
+
+  async function writeProfiles(change: (data: ConnectionProfiles) => void) {
+    // this page's pending write goes first: it replaces the settings object as a whole
+    await flushSettings();
+    store.mutateSettings((all) => {
+      all['extension_settings'] ??= {};
+      const extensions = all['extension_settings'] as Record<string, unknown>;
+      const raw = extensions['connectionManager'];
+      const data = loadConnectionProfiles(raw ? $state.snapshot(raw) : null);
+      change(data);
+      extensions['connectionManager'] = data;
+    });
+  }
+
+  async function saveNewProfile() {
+    // a key typed but not saved yet belongs to the profile being made
+    if (keyInput.trim()) await saveKey();
+    const typed = await askPopup({
+      kind: 'input',
+      title: '存为连接配置',
+      text: '把现在的来源、地址、密钥和模型存成一套，起个名字：',
+      value: suggestProfileName(connectionState(), profileData.profiles),
+      okButton: '保存',
+    });
+    const name = typeof typed === 'string' ? typed.trim() : '';
+    if (!name) return;
+    if (profileNameTaken(profileData.profiles, name)) {
+      toasts.show('error', `已经有一套叫「${name}」的配置了`);
+      return;
+    }
+    const profile = createConnectionProfile(name, connectionState());
+    try {
+      await writeProfiles((data) => {
+        data.profiles.push(profile);
+        data.selectedProfile = profile.id;
+      });
+      emitAppEvent('connection_profile_created', profile);
+      emitAppEvent('connection_profile_loaded', profile.name);
+      toasts.show('success', `已存为「${name}」`);
+    } catch (e) {
+      error = msg(e);
+    }
+  }
+
+  async function updateProfile() {
+    const old = activeProfile;
+    if (!old) return;
+    if (keyInput.trim()) await saveKey();
+    const next = updateConnectionProfile(old, connectionState());
+    try {
+      await writeProfiles((data) => {
+        const index = data.profiles.findIndex((p) => p.id === old.id);
+        if (index !== -1) data.profiles[index] = next;
+      });
+      emitAppEvent('connection_profile_updated', old, next);
+      emitAppEvent('connection_profile_loaded', next.name);
+      toasts.show('success', `「${next.name}」已更新`);
+    } catch (e) {
+      error = msg(e);
+    }
+  }
+
+  async function renameProfile() {
+    const old = activeProfile;
+    if (!old) return;
+    const typed = await askPopup({
+      kind: 'input',
+      title: '给这套配置改名',
+      text: '只改名字，里面记的地址、密钥和模型不变。',
+      value: old.name,
+      okButton: '保存',
+    });
+    const name = typeof typed === 'string' ? typed.trim() : '';
+    if (!name || name === old.name) return;
+    if (profileNameTaken(profileData.profiles, name, old.id)) {
+      toasts.show('error', `已经有一套叫「${name}」的配置了`);
+      return;
+    }
+    const next = { ...old, name };
+    try {
+      await writeProfiles((data) => {
+        const index = data.profiles.findIndex((p) => p.id === old.id);
+        if (index !== -1) data.profiles[index] = next;
+      });
+      emitAppEvent('connection_profile_updated', old, next);
+    } catch (e) {
+      error = msg(e);
+    }
+  }
+
+  async function deleteProfile() {
+    const old = activeProfile;
+    if (!old) return;
+    const ok = await askPopup({
+      kind: 'confirm',
+      title: `删除配置「${old.name}」？`,
+      text: '只删掉这套记录，现在填着的地址、密钥和模型不会动。',
+      okButton: '删除',
+    });
+    if (ok !== true) return;
+    try {
+      await writeProfiles((data) => {
+        data.profiles = data.profiles.filter((p) => p.id !== old.id);
+        data.selectedProfile = null;
+      });
+      emitAppEvent('connection_profile_deleted', old);
+      emitAppEvent('connection_profile_loaded', '<None>');
+    } catch (e) {
+      error = msg(e);
+    }
+  }
+
+  /** Switch to a saved profile (ST `applyConnectionProfile`), then connect with it. */
+  async function chooseProfile(id: string) {
+    const profile = profileData.profiles.find((p) => p.id === id);
+    if (!profile) {
+      try {
+        await writeProfiles((data) => (data.selectedProfile = null));
+        emitAppEvent('connection_profile_loaded', '<None>');
+      } catch (e) {
+        error = msg(e);
+      }
+      return;
+    }
+    busy = '切换配置…';
+    error = null;
+    try {
+      const plan = planConnectionProfile(profile, connectionState(), proxies);
+      const skipped = [...plan.skipped];
+      mainApi = plan.mainApi;
+      Object.assign(oai, plan.oai);
+      Object.assign(tg, plan.tg);
+      const proxy = plan.proxy ? proxies.find((p) => p.name === plan.proxy) : undefined;
+      if (proxy) {
+        proxyName = proxy.name;
+        proxyUrl = proxy.url;
+        proxyPassword = '';
+      }
+      // a key typed for the previous choice is not this profile's
+      keyInput = '';
+      keyLabel = '';
+      models = [];
+      status = STATUS_NO_CONNECTION;
+      message = null;
+      persist();
+      if (plan.secret && secretKey) {
+        const stored = await secretFind(secretKey);
+        const key =
+          stored.find((k) => k.id === plan.secret) ?? stored.find((k) => k.label === plan.secret);
+        if (!key) skipped.push('secret-id');
+        else if (!key.active) await secretRotate(secretKey, key.id);
+        await refreshKeys();
+      }
+      await writeProfiles((data) => (data.selectedProfile = profile.id));
+      emitAppEvent('connection_profile_loaded', profile.name);
+      if (skipped.length) {
+        const names = skipped.map((field) => PROFILE_FIELD_NAMES[field] ?? field).join('、');
+        toasts.show('warning', `这套配置里有几项没能用上：${names}（可能已被删除或改名）`, '', 0);
+      }
+    } catch (e) {
+      error = msg(e);
+      return;
+    } finally {
+      busy = null;
+    }
+    await connect();
+  }
+
   // ---- connect ----
   async function connect(allowInsecure = false) {
     if (keyInput.trim()) await saveKey();
@@ -348,6 +564,60 @@
       </p>
     {/if}
     {#if backend}<p class="tm-form__hint">{backend}：密钥只保存在本次运行的内存里。</p>{/if}
+
+    <div class="tm-form__section" id="connection_profiles_block">
+      <h2 class="tm-form__heading">
+        <span>连接配置</span>
+        {#if profileData.profiles.length}<small>已存 {profileData.profiles.length} 套</small>{/if}
+      </h2>
+      {#if profileData.profiles.length}
+        <label class="tm-form__field">
+          <span class="tm-form__label"
+            >当前配置{#if profileEdited}
+              <small class="tm-form__label-warn">有改动，还没存进这套配置</small>{/if}</span
+          >
+          <select
+            id="connection_profiles"
+            class="text_pole tm-form__select"
+            value={profileData.selectedProfile ?? ''}
+            disabled={!!busy}
+            onchange={(e) => chooseProfile(e.currentTarget.value)}
+          >
+            <option value="">不使用配置</option>
+            {#each profileData.profiles as p (p.id)}
+              <option value={p.id}>{p.name}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
+      <div class="tm-form__actions">
+        <button
+          class="menu_button tm-form__chip"
+          class:tm-form__chip--primary={!activeProfile}
+          disabled={!!busy}
+          onclick={saveNewProfile}><Icon name="plus" /> 存为新配置</button
+        >
+        {#if activeProfile}
+          <button
+            class="menu_button tm-form__chip"
+            class:tm-form__chip--primary={profileEdited}
+            disabled={!profileEdited}
+            onclick={updateProfile}>更新这套</button
+          >
+          <button class="menu_button tm-form__chip" disabled={!!busy} onclick={renameProfile}
+            >改名</button
+          >
+          <button
+            class="menu_button tm-form__chip tm-form__chip--danger"
+            disabled={!!busy}
+            onclick={deleteProfile}>删除</button
+          >
+        {/if}
+      </div>
+      <p class="tm-form__hint">
+        把来源、地址、密钥和模型存成一套；换服务时在这里选一下就行，不用重新填。
+      </p>
+    </div>
 
     <div class="tm-form__section">
       <div class="tm-form__field" id="main_api">

@@ -37,6 +37,7 @@ export * from './render/index.js';
 export * from './tags/index.js';
 export * from './presets/index.js';
 export * from './presets/textgen.js';
+export * from './presets/connection-profiles.js';
 export * from './prompt/clean-up.js';
 export * from './persona/index.js';
 export * from './background/index.js';

@@ -85,6 +85,10 @@ body {
   letter-spacing: var(--tm-tracking-normal);
   color: var(--tm-color-text-muted);
 }
+/* a note that needs a look, e.g. "edited since it was saved" */
+.tm-form__label small.tm-form__label-warn {
+  color: var(--tm-color-warning);
+}
 .tm-form__value {
   margin-left: auto;
   font-family: var(--tm-font-mono);

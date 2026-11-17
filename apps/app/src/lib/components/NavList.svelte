@@ -51,7 +51,7 @@
 <nav class="tm-nav">
   <div class="tm-nav__brand">
     <span class="tm-nav__wordmark">Tavern</span>
-    <span class="tm-nav__tag">mobile · 0.0.1</span>
+    <span class="tm-nav__tag">mobile</span>
   </div>
   <ul id="top-settings-holder" class="tm-nav__list">
     {#each items as it (it.id)}
