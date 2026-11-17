@@ -46,6 +46,8 @@
     onMoveUp?: (() => void) | undefined;
     onMoveDown?: (() => void) | undefined;
     onToggleHidden?: (() => void) | undefined;
+    /** hide this message and every one before it — or show them all again when this one is hidden */
+    onToggleHiddenThrough?: (() => void) | undefined;
     onSwipe?: ((dir: -1 | 1) => void) | undefined;
     /** ST bookmarks (DEV_NOTES §9.29): flag when this message has a checkpoint; create actions */
     bookmarkLink?: string | null | undefined;
@@ -89,6 +91,7 @@
     onMoveUp,
     onMoveDown,
     onToggleHidden,
+    onToggleHiddenThrough,
     onSwipe,
     bookmarkLink = null,
     onOpenBookmark,
@@ -351,6 +354,17 @@
                     }}><Icon name="eye" size="sm" /></button
                   >
                 {/if}
+              {/if}
+              {#if onToggleHiddenThrough}
+                <button
+                  class="tm-mes__hide-through mes_button tm-mes__tool"
+                  title={isSystem ? '取消隐藏此楼及之前的所有楼层' : '隐藏此楼及之前的所有楼层'}
+                  aria-label={isSystem ? '取消隐藏此楼及之前' : '隐藏此楼及之前'}
+                  onclick={() => {
+                    extrasOpen = false;
+                    onToggleHiddenThrough?.();
+                  }}><Icon name={isSystem ? 'eye-slash-up' : 'eye-up'} size="sm" /></button
+                >
               {/if}
               {#if onCheckpoint}
                 <button

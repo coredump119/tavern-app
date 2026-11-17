@@ -5,6 +5,7 @@
    */
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import {
+    countHiddenChange,
     countMessagesToRegenerate,
     ensureNoteDefaults,
     generateGroup,
@@ -24,6 +25,7 @@
   import Segmented from '@tm/ui/components/Segmented.svelte';
   import Button from '@tm/ui/components/Button.svelte';
   import VirtualList from '@tm/ui/components/VirtualList.svelte';
+  import type { JumpTarget } from '@tm/ui';
   import MessageItem from '../lib/components/chat/MessageItem.svelte';
   import Composer from '../lib/components/chat/Composer.svelte';
   import BottomSheet from '../lib/components/BottomSheet.svelte';
@@ -41,6 +43,7 @@
   import { pickFiles } from '../lib/files';
   import { offerCardExtras } from '../lib/card-extras.svelte';
   import { toasts } from '../lib/toast.svelte';
+  import { askPopup } from '../lib/popup.svelte';
   import { listWorldNames } from '../lib/worlds';
   import { MessageRenderer, formatPowerUserFrom } from '../lib/chat/render';
   import {
@@ -518,6 +521,20 @@
   /** rows with a front-end card stay mounted for a while after scrolling away (DEV_NOTES §9.5 保活) */
   const hasLiveCard = (_m: ChatMessage, i: number) => helperBridge.hasSlots(i);
   const lastIndex = $derived(rows.length - 1);
+
+  // ---- jump to the top / the end: offered only while scrolling that way (DEV_NOTES §9.47) ----
+  let list: { scrollToTop: () => void; scrollToBottom: () => void } | undefined = $state();
+  let jump = $state<JumpTarget>(null);
+  /** the last one offered: the icon stays put while the button fades out */
+  let jumpShown = $state<'top' | 'bottom'>('bottom');
+  function showJump(target: JumpTarget): void {
+    jump = target;
+    if (target) jumpShown = target;
+  }
+  function jumpNow(): void {
+    if (jump === 'top') list?.scrollToTop();
+    else if (jump === 'bottom') list?.scrollToBottom();
+  }
 
   // ST `MORE_MESSAGES_LOADED`: messages that were not in the DOM are now (DEV_NOTES §9.34). Here
   // that is the virtual window growing at either end for a reason other than a new message.
@@ -1363,6 +1380,33 @@
     if (!m || busy) return;
     await store.replace(i, { ...m, is_system: !m.is_system });
   }
+  /**
+   * One tap for "this message and everything before it": hide them all, or — on a hidden message —
+   * show them all again (DEV_NOTES §9.47). Asks first: it can touch hundreds of messages.
+   */
+  async function toggleHiddenThrough(i: number) {
+    const m = store.messages[i];
+    if (!m || busy) return;
+    const hidden = !m.is_system;
+    const count = countHiddenChange(store.messages, 0, i, hidden);
+    const ok = await askPopup({
+      kind: 'confirm',
+      title: hidden ? '隐藏此楼及之前' : '取消隐藏此楼及之前',
+      text: hidden
+        ? `这一楼和它前面的楼层（共 ${count} 条）会被隐藏：它们不再发给 AI，但还留在聊天里，随时可以取消隐藏。`
+        : `这一楼和它前面被隐藏的楼层（共 ${count} 条）会重新发给 AI。`,
+      okButton: hidden ? '隐藏' : '取消隐藏',
+      cancelButton: '不了',
+    });
+    // the chat may have moved on while the question was up
+    if (ok !== true || busy || store.messages[i] !== m) return;
+    try {
+      const n = await store.setHiddenRange(0, i, hidden);
+      toasts.show('success', hidden ? `已隐藏 ${n} 条` : `已取消隐藏 ${n} 条`);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
   function runOption(action: () => void | Promise<void>) {
     optionsOpen = false;
     void action();
@@ -1477,6 +1521,8 @@
         followBottom={true}
         keepAlive={hasLiveCard}
         {onWindow}
+        onJump={showJump}
+        bind:this={list}
       >
         {#snippet header()}
           <div class="tm-chat__top">
@@ -1521,6 +1567,9 @@
             onMoveUp={i > 0 ? () => move(i, -1) : undefined}
             onMoveDown={i < store.messages.length - 1 ? () => move(i, 1) : undefined}
             onToggleHidden={() => toggleHidden(i)}
+            onToggleHiddenThrough={i > 0 && m !== pendingRow
+              ? () => toggleHiddenThrough(i)
+              : undefined}
             onSwipe={swipe}
             bookmarkLink={bookmarkOf(m)}
             onOpenBookmark={() => {
@@ -1540,6 +1589,17 @@
           />
         {/snippet}
       </VirtualList>
+      <!-- no height of its own: the button floats over the end of the list, above whatever follows -->
+      <div class="tm-chat__jump">
+        <button
+          class="tm-chat__jump-button"
+          class:tm-chat__jump-button--shown={jump !== null}
+          title={jumpShown === 'top' ? '回到顶部' : '回到底部'}
+          aria-label={jumpShown === 'top' ? '回到顶部' : '回到底部'}
+          onclick={jumpNow}
+          ><Icon name={jumpShown === 'top' ? 'angles-up' : 'angles-down'} /></button
+        >
+      </div>
       {#if error}
         <div class="tm-chat__column tm-chat__banner" role="alert">
           <span>{error}</span>
@@ -2175,6 +2235,36 @@
   }
   .tm-chat__banner--info {
     color: var(--tm-color-text);
+  }
+  .tm-chat__jump {
+    position: relative;
+    height: 0;
+    flex: none;
+  }
+  .tm-chat__jump-button {
+    position: absolute;
+    right: var(--tm-gutter);
+    bottom: var(--tm-space-3);
+    display: grid;
+    place-items: center;
+    width: var(--tm-touch-target);
+    height: var(--tm-touch-target);
+    border: var(--tm-border-width) solid var(--tm-color-border);
+    border-radius: var(--tm-radius-full);
+    background: color-mix(in srgb, var(--tm-color-surface-raised) 92%, transparent);
+    color: var(--tm-color-text);
+    box-shadow: var(--tm-shadow-2);
+    /* hidden: out of sight, out of the tab order and the accessibility tree */
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity var(--tm-duration-fast) var(--tm-ease),
+      visibility 0s linear var(--tm-duration-fast);
+  }
+  .tm-chat__jump-button--shown {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
   }
   /* banners sit over the avatar background: give them a readable backing */
   .tm-chat__banner {

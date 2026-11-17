@@ -32,7 +32,11 @@
     | 'paperclip'
     | 'arrow-left'
     | 'expand'
-    | 'code';
+    | 'code'
+    | 'angles-up'
+    | 'angles-down'
+    | 'eye-up'
+    | 'eye-slash-up';
   interface Props {
     name: IconName;
     size?: 'sm' | 'md' | 'lg';
@@ -73,6 +77,11 @@
     'arrow-left': 'fa-arrow-left',
     expand: 'fa-magnifying-glass',
     code: 'fa-code',
+    'angles-up': 'fa-angles-up',
+    'angles-down': 'fa-angles-down',
+    // no Font Awesome glyph for "this one and all above": the plain eye classes stand in
+    'eye-up': 'fa-eye',
+    'eye-slash-up': 'fa-eye-slash',
   };
   const paths: Record<IconName, string> = {
     ellipsis: 'M5 12h.01M12 12h.01M19 12h.01',
@@ -110,6 +119,12 @@
     'arrow-left': 'M19 12H6M11 6l-6 6 6 6',
     expand: 'M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5L21 21M8 10.5h5M10.5 8v5',
     code: 'M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14',
+    'angles-up': 'M6 11l6-6 6 6M6 18l6-6 6 6',
+    'angles-down': 'M6 6l6 6 6-6M6 13l6 6 6-6',
+    'eye-up':
+      'M8 6l4-3.5L16 6M3 15s3.5-5.5 9-5.5 9 5.5 9 5.5-3.5 5.5-9 5.5S3 15 3 15zM12 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+    'eye-slash-up':
+      'M8 6l4-3.5L16 6M3 15s3.5-5.5 9-5.5 9 5.5 9 5.5-3.5 5.5-9 5.5S3 15 3 15zM12 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM5 9.5l14 11',
   };
 </script>
 

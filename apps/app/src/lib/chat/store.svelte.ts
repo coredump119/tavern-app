@@ -14,6 +14,7 @@ import {
 } from '@tm/formats';
 import {
   attributeUserMessages,
+  setHiddenRange,
   addGroupChat,
   buildGroupFirstMessages,
   resolvePersonaForChat,
@@ -607,6 +608,19 @@ class ChatStore {
     if (!path) throw new Error('no chat open');
     const flushed = this.flushDeferred();
     const r = attributeUserMessages(this.messages, name, forceAvatar);
+    if (r.first < 0) return 0;
+    this.messages = r.messages;
+    await flushed;
+    await chatRewriteFrom(path, r.first, r.messages.slice(r.first).map(serializeMessage));
+    return r.changed;
+  }
+
+  /** Hide or show again every message in `[start, end]` (DEV_NOTES §9.47). Returns how many changed. */
+  async setHiddenRange(start: number, end: number, hidden: boolean): Promise<number> {
+    const path = this.chatPath;
+    if (!path) throw new Error('no chat open');
+    const flushed = this.flushDeferred();
+    const r = setHiddenRange(this.messages, start, end, hidden);
     if (r.first < 0) return 0;
     this.messages = r.messages;
     await flushed;

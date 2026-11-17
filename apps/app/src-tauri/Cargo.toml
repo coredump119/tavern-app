@@ -1,6 +1,6 @@
 [package]
 name = "tm-app"
-version = "0.0.7"
+version = "0.0.8"
 description = "Tavern — mobile-first SillyTavern rewrite"
 edition.workspace = true
 license.workspace = true

@@ -15,6 +15,7 @@
   import { onMount, tick, untrack } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
   import { nextFollow, PIN_SLACK } from './follow.js';
+  import { nextJump, NO_JUMP, type JumpState, type JumpTarget } from './jump.js';
 
   interface Props {
     items: readonly T[];
@@ -36,6 +37,11 @@
     keepAliveMax?: number;
     /** Called when the mounted window `[start, end)` changes */
     onWindow?: ((start: number, end: number) => void) | undefined;
+    /**
+     * Called when the "jump to an end" button to offer changes: the top while the user scrolls up,
+     * the end while they scroll down, nothing once they stop for a moment or get close to that end.
+     */
+    onJump?: ((target: JumpTarget) => void) | undefined;
     id?: string | undefined;
     class?: string | undefined;
   }
@@ -51,6 +57,7 @@
     keepAlive,
     keepAliveMax = 6,
     onWindow,
+    onJump,
     id,
     class: className,
   }: Props = $props();
@@ -205,10 +212,44 @@
     return false;
   }
 
+  // ---- jump buttons: the caller draws one, the list says which fits (DEV_NOTES §9.47) ----
+  /** scroll events this close together are one gesture: momentum goes on after the finger lifts */
+  const SCROLL_CHAIN_MS = 250;
+  /** a shown button goes this long after the last scroll event */
+  const JUMP_IDLE_MS = 1800;
+  let jump: JumpState = NO_JUMP;
+  let userScrollUntil = -Infinity;
+  let jumpSeen = 0;
+  let jumpTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function setJump(next: JumpState) {
+    const changed = next.target !== jump.target;
+    jump = next;
+    if (changed) onJump?.(next.target);
+  }
+  function trackJump(delta: number, top: number, distanceFromBottom: number) {
+    const now = performance.now();
+    const user = userInput() || now < userScrollUntil;
+    if (user) userScrollUntil = now + SCROLL_CHAIN_MS;
+    setJump(nextJump(jump, { delta, top, distanceFromBottom, viewport: viewportHeight, user }));
+    if (!jump.target) return;
+    // one timer for the whole gesture: it re-arms itself for whatever time is left
+    jumpSeen = now;
+    jumpTimer ??= setTimeout(jumpIdle, JUMP_IDLE_MS);
+  }
+  function jumpIdle() {
+    jumpTimer = undefined;
+    if (!jump.target) return;
+    const left = JUMP_IDLE_MS - (performance.now() - jumpSeen);
+    if (left > 0) jumpTimer = setTimeout(jumpIdle, left);
+    else setJump(NO_JUMP);
+  }
+
   function onScroll() {
     if (!viewport) return;
     const top = viewport.scrollTop;
     const distanceFromBottom = viewport.scrollHeight - viewport.clientHeight - top;
+    if (onJump) trackJump(top - scrollTop, top, distanceFromBottom);
     const wasFollowing = followBottom;
     followBottom = nextFollow(wasFollowing, {
       top,
@@ -228,6 +269,14 @@
     if (!viewport) return;
     viewport.scrollTo({ top: viewport.scrollHeight, behavior });
     followBottom = true;
+    setJump(NO_JUMP);
+  }
+
+  export function scrollToTop() {
+    if (!viewport) return;
+    followBottom = false;
+    viewport.scrollTo({ top: 0 });
+    setJump(NO_JUMP);
   }
 
   onMount(() => {
@@ -255,6 +304,7 @@
     el.addEventListener('wheel', touched, passive);
     el.addEventListener('keydown', touched, passive);
     return () => {
+      clearTimeout(jumpTimer);
       vro.disconnect();
       ro?.disconnect();
       el.removeEventListener('touchstart', hold);

@@ -42,3 +42,4 @@ export * from './persona/index.js';
 export * from './background/index.js';
 export * from './chat/bookmarks.js';
 export * from './chat/import.js';
+export * from './chat/hidden.js';
